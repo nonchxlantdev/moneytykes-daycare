@@ -1,0 +1,174 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "@fontsource-variable/plus-jakarta-sans";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * ------------------------------------------------------------------
+ * DESIGN TOKENS
+ * ------------------------------------------------------------------
+ * Brand tokens (--brand-*) are tenant-configurable. Defaults live here,
+ * and the active organization overrides them at runtime via inline
+ * style on <html> (see lib/theme/brand-css-vars.ts). Components should
+ * reference semantic Tailwind colors (bg-brand, text-success, …),
+ * never raw hex values.
+ */
+:root {
+  /* Tenant brand (overridable per organization) */
+  --brand-primary: #2f6bea;
+  --brand-primary-foreground: #ffffff;
+  --brand-secondary: #7c4dff;
+  --brand-secondary-foreground: #ffffff;
+  --brand-accent: #f28c28;
+  --brand-accent-foreground: #ffffff;
+
+  /* Status tokens (platform defaults, optionally overridable) */
+  --brand-success: #1fa95a;
+  --brand-success-foreground: #ffffff;
+  --brand-warning: #f08c1a;
+  --brand-warning-foreground: #ffffff;
+  --brand-danger: #e5484d;
+  --brand-danger-foreground: #ffffff;
+  --brand-info: #2f6bea;
+
+  /* Neutral shell — deliberately brand-agnostic */
+  --ink: #0f1b3d;
+  --ink-muted: #5b6785;
+  --ink-subtle: #8a94ad;
+  --surface: #ffffff;
+  --canvas: #f5f7fc;
+  --line: #e6eaf3;
+  --line-strong: #d5dbe8;
+
+  --radius: 1rem;
+
+  /* shadcn/ui semantic tokens mapped onto the brand + neutral shell */
+  --background: var(--canvas);
+  --foreground: var(--ink);
+  --card: var(--surface);
+  --card-foreground: var(--ink);
+  --popover: var(--surface);
+  --popover-foreground: var(--ink);
+  --primary: var(--brand-primary);
+  --primary-foreground: var(--brand-primary-foreground);
+  --secondary: #eef2fa;
+  --secondary-foreground: var(--ink);
+  --muted: #f1f4fa;
+  --muted-foreground: var(--ink-muted);
+  --accent: #eef3ff;
+  --accent-foreground: var(--ink);
+  --destructive: var(--brand-danger);
+  --border: var(--line);
+  --input: var(--line-strong);
+  --ring: var(--brand-primary);
+
+  --shadow-soft: 0 1px 2px rgb(15 27 61 / 0.04), 0 4px 16px -4px rgb(15 27 61 / 0.06);
+  --shadow-lift: 0 2px 4px rgb(15 27 61 / 0.05), 0 12px 32px -8px rgb(15 27 61 / 0.12);
+}
+
+@theme inline {
+  --font-sans: "Plus Jakarta Sans Variable", ui-sans-serif, system-ui, sans-serif;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* Brand + status utilities: bg-brand, text-brand-secondary, bg-success/10 … */
+  --color-brand: var(--brand-primary);
+  --color-brand-foreground: var(--brand-primary-foreground);
+  --color-brand-secondary: var(--brand-secondary);
+  --color-brand-secondary-foreground: var(--brand-secondary-foreground);
+  --color-brand-accent: var(--brand-accent);
+  --color-brand-accent-foreground: var(--brand-accent-foreground);
+  --color-success: var(--brand-success);
+  --color-success-foreground: var(--brand-success-foreground);
+  --color-warning: var(--brand-warning);
+  --color-warning-foreground: var(--brand-warning-foreground);
+  --color-danger: var(--brand-danger);
+  --color-danger-foreground: var(--brand-danger-foreground);
+
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-subtle: var(--ink-subtle);
+  --color-surface: var(--surface);
+  --color-canvas: var(--canvas);
+  --color-line: var(--line);
+
+  --radius-sm: calc(var(--radius) - 8px);
+  --radius-md: calc(var(--radius) - 4px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 16px);
+
+  --shadow-soft: var(--shadow-soft);
+  --shadow-lift: var(--shadow-lift);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "ss01", "cv11";
+  }
+  :focus-visible {
+    outline: 3px solid color-mix(in oklab, var(--brand-primary) 55%, transparent);
+    outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer utilities {
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-strong) transparent;
+  }
+  /* Kiosk canvas: soft daylight wash using brand tints */
+  .kiosk-backdrop {
+    background:
+      radial-gradient(60rem 30rem at 10% -10%, color-mix(in oklab, var(--brand-primary) 14%, transparent), transparent 70%),
+      radial-gradient(50rem 30rem at 110% 0%, color-mix(in oklab, var(--brand-secondary) 10%, transparent), transparent 70%),
+      radial-gradient(60rem 30rem at 50% 120%, color-mix(in oklab, var(--brand-accent) 10%, transparent), transparent 70%),
+      #f7f9ff;
+  }
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: white;
+  }
+}
