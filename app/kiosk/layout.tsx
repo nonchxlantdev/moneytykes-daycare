@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { KioskHeader } from "@/components/kiosk/kiosk-header";
 import { DemoBadge } from "@/components/shared/demo-badge";
+import { getCurrentUser } from "@/lib/auth/credentials";
 
 export const metadata: Metadata = { title: "Kiosk" };
 
@@ -16,7 +17,8 @@ export const viewport: Viewport = {
  * Production: this route group requires an authenticated kiosk DEVICE
  * session (organization-scoped, attendance/time-clock permissions only).
  */
-export default function KioskLayout({ children }: { children: React.ReactNode }) {
+export default async function KioskLayout({ children }: { children: React.ReactNode }) {
+  await getCurrentUser();
   return (
     <div className="kiosk-backdrop relative flex min-h-dvh flex-col overflow-hidden select-none">
       <KioskHeader />

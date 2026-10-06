@@ -124,12 +124,53 @@ There is no `checkedIn` flag anywhere. `AttendanceEvent { type: "CHECK_IN" | "CH
 - `SignaturePad` already exports a PNG `Blob`; `lib/services/signature-storage.ts` is the seam — swap the mock for an authenticated upload route that validates type/size and stores only the key on the event.
 - Admins view signatures/documents through short-lived signed URLs. Nothing public by default.
 
-## Future: authentication & authorization
+## Authentication
 
-- Replace `lib/auth/mock-session.ts` with real sessions (e.g. Auth.js/Clerk/Lucia-style) and resolve the active tenant from subdomain/custom domain + membership.
-- Enforce on the **server** for every query/mutation: organization membership, role (Platform Super Admin, Owner/Admin, Staff, Kiosk Device, Parent later) and record ownership. Hiding UI is not security.
-- Kiosks authenticate as registered **devices** with attendance/time-clock permissions only; device + org IDs come from the session, not the client.
-- Guardian and staff PINs stored as salted hashes (argon2/bcrypt), verified server-side, rate-limited and audit-logged. `lib/auth/mock-kiosk-auth.ts` must not be reused.
+The daycare app is closed by default. `proxy.ts` checks a signed httpOnly cookie on every route except `/login` and static files. Admin and kiosk layouts call `getCurrentUser()` again before rendering, so a missing or invalid session is rejected on the server.
+
+| Route | Behavior |
+|---|---|
+| `/` | Signed out → `/login`. Signed in → `/dashboard`. |
+| `/login` | Public. A signed-in user is sent to `/dashboard`. |
+| Everything else (`/dashboard`, `/children`, `/kiosk`, …) | Requires a session. Otherwise → `/login`. |
+
+Sign out is in the sidebar account menu. It clears the cookie and returns to `/login`.
+
+There is no database of users yet. One site password is configured with environment variables. The password is stored only as a bcrypt hash. The login screen asks for that password and nothing else. The session cookie holds a user id signed with `SESSION_SECRET` (HS256). It is `HttpOnly`, `SameSite=Lax`, and `Secure` in production, and lasts 30 days.
+
+### Local setup
+
+```bash
+copy .env.example .env.local
+```
+
+Fill in:
+
+```powershell
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+npm run hash-password -- "your-password"
+```
+
+| Variable | Purpose |
+|---|---|
+| `SESSION_SECRET` | Signs the session cookie. At least 32 characters. |
+| `AUTH_PASSWORD_HASH` | bcrypt hash of the single site password, from `npm run hash-password`. In `.env.local`, escape each `$` as `\$`. In the Vercel dashboard, paste the hash exactly, with the `$` characters left as-is. |
+| `AUTH_USER_NAME` | Name shown in the sidebar. |
+| `AUTH_EMAIL` | Optional. Not used to sign in. |
+
+Restart `npm run dev` after changing `.env.local`. Local app: `http://localhost:3000`.
+
+### Vercel
+
+In the Vercel project → **Settings → Environment Variables**, add `SESSION_SECRET`, `AUTH_PASSWORD_HASH`, and `AUTH_USER_NAME` for **Production**, **Preview**, and **Development**. `AUTH_EMAIL` is optional. Use a different `SESSION_SECRET` and password in production than on your laptop. Redeploy after saving them. The site origin is the Vercel URL; nothing is hard-coded to a preview URL.
+
+Until those variables exist on Vercel, the login page loads but sign-in is refused.
+
+The platform logo belongs at `public/branding/vision-forge-logo.png`. It is shown on the login screen only. Little Stars branding inside the demo tenant is unchanged.
+
+### Later: D1 and multi-tenancy
+
+`authenticate()` and `getCurrentUser()` are the seams. Phase 2 replaces the env user with `users` + `organization_memberships` (roles `PLATFORM_ADMIN`, `DAYCARE_OWNER`, `DAYCARE_ADMIN`, `DAYCARE_STAFF`). Sessions can stay signed cookies, or move to a session id stored in D1. Kiosk tablets will get a separate device login; `/kiosk` stays behind this user session until then. Guardian and staff PINs stay out of this login and must be hashed server-side when they are built. `lib/auth/mock-kiosk-auth.ts` must not be reused.
 
 ## Deployment notes
 

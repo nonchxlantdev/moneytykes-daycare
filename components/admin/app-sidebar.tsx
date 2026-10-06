@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronsUpDown, LifeBuoy, Tablet } from "lucide-react";
+import { LifeBuoy, Tablet } from "lucide-react";
+import { AccountMenu } from "./account-menu";
 import { TenantBrand } from "@/components/shared/tenant-brand";
-import { PersonAvatar } from "@/components/shared/child-avatar";
 import { cn } from "@/lib/utils";
 import { primaryNav } from "./nav-items";
 
@@ -74,13 +74,8 @@ export function SidebarFooter({ user }: { user: SidebarUser }) {
           Contact Support
         </a>
       </div>
-      <div className="flex items-center gap-3 border-t border-line px-1 pt-4">
-        <PersonAvatar name={user.name} size="sm" />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-bold text-ink">{user.name}</p>
-          <p className="text-xs text-ink-muted">{user.roleLabel}</p>
-        </div>
-        <ChevronsUpDown className="size-4 text-ink-subtle" aria-hidden="true" />
+      <div className="border-t border-line px-1 pt-4">
+        <AccountMenu user={user} />
       </div>
     </div>
   );
