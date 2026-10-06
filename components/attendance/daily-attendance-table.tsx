@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import type { ChildRecord } from "@/lib/data";
+import type { ChildRecord } from "@/types/domain";
 import type { ChildDay } from "@/lib/domain/attendance";
 import { ChildAvatar } from "@/components/shared/child-avatar";
 import { useOrganization } from "@/components/shared/organization-provider";

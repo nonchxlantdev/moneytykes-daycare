@@ -1,37 +1,83 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Cake, ClipboardList, FileText, HeartPulse, LayoutGrid, LogIn, LogOut, StickyNote, UsersRound, Wallet } from "lucide-react";
-import type { ChildDocument, Classroom, Invoice, Payment } from "@/types/domain";
-import type { ChildRecord } from "@/lib/data";
+import type { AttendanceEvent, ChildRecord, Classroom, EnrollmentStatus, Invoice, Payment } from "@/types/domain";
 import { ChildAvatar } from "@/components/shared/child-avatar";
 import { useOrganization } from "@/components/shared/organization-provider";
+import { FormAlert } from "@/components/shared/form-alert";
 import { StatusBadge } from "@/components/shared/status-badge";
+import { useCan } from "@/components/shared/viewer-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { callAction } from "@/lib/client/server-form";
+import { setChildStatusAction } from "@/lib/server/actions";
 import { useChildDays } from "@/lib/hooks/use-attendance";
 import { ageLabel, formatCalendarDate, formatDuration, formatTime, fullName } from "@/lib/utils";
 import { ChildAttendanceTab } from "./child-attendance-tab";
 import { ChildDocumentsTab, ChildGuardiansTab, ChildNotesTab } from "./child-misc-tabs";
 import { ChildOverviewTab } from "./child-overview-tab";
 import { ChildPaymentsTab } from "./child-payments-tab";
+import { EditChildDialog } from "./edit-child-dialog";
+
+const ENROLLMENT_LABEL: Record<EnrollmentStatus, string> = {
+  ACTIVE: "Enrolled",
+  WAITLIST: "Waitlist",
+  INACTIVE: "Inactive",
+  WITHDRAWN: "Withdrawn",
+};
+
+function EnrollmentStatusControl({ child }: { child: ChildRecord }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const change = async (value: string) => {
+    setBusy(true);
+    setError(undefined);
+    const result = await callAction(() => setChildStatusAction({ childId: child.id, enrollmentStatus: value }));
+    setBusy(false);
+    if (!result.ok) return setError(result.error.message);
+    router.refresh();
+  };
+  return (
+    <div className="flex flex-col gap-1">
+      <Select value={child.enrollmentStatus} onValueChange={change} disabled={busy}>
+        <SelectTrigger className="h-8 w-36 text-xs" aria-label="Enrollment status">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {(Object.keys(ENROLLMENT_LABEL) as EnrollmentStatus[]).map((s) => (
+            <SelectItem key={s} value={s}>
+              {ENROLLMENT_LABEL[s]}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <FormAlert message={error} className="text-xs" />
+    </div>
+  );
+}
 
 export function ChildProfile({
   child,
-  classroom,
-  invoices,
-  payments,
-  documents,
+  classrooms,
+  history,
+  billing,
 }: {
   child: ChildRecord;
-  classroom: Classroom;
-  invoices: Invoice[];
-  payments: Payment[];
-  documents: ChildDocument[];
+  classrooms: Classroom[];
+  history: AttendanceEvent[];
+  /** null when the viewer may not see billing (mock data in Phase 2). */
+  billing: { invoices: Invoice[]; payments: Payment[] } | null;
 }) {
   const org = useOrganization();
+  const canWrite = useCan("children:write");
+  const classroom = classrooms.find((c) => c.id === child.classroomId);
   const { byChild, hasClock } = useChildDays([child]);
   const today = byChild.get(child.id);
   const name = fullName(child);
@@ -39,8 +85,8 @@ export function ChildProfile({
   const facts = [
     { label: "Date of birth", value: formatCalendarDate(child.dateOfBirth) },
     { label: "Age", value: ageLabel(child.dateOfBirth) },
-    { label: "Class", value: classroom.name },
-    { label: "Enrolled since", value: formatCalendarDate(child.enrolledOn) },
+    { label: "Class", value: classroom?.name ?? "Not assigned" },
+    { label: "Enrolled since", value: child.enrolledOn ? formatCalendarDate(child.enrolledOn) : "—" },
   ];
 
   return (
@@ -52,10 +98,12 @@ export function ChildProfile({
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-2xl font-extrabold tracking-tight text-ink sm:text-3xl">{name}</h1>
-              <Badge tone={child.enrollmentStatus === "ACTIVE" ? "success" : "neutral"}>
-                {child.enrollmentStatus === "ACTIVE" ? "Enrolled" : child.enrollmentStatus}
-              </Badge>
-              {child.allergies.length > 0 && (
+              {canWrite ? (
+                <EnrollmentStatusControl child={child} />
+              ) : (
+                <Badge tone={child.enrollmentStatus === "ACTIVE" ? "success" : "neutral"}>{ENROLLMENT_LABEL[child.enrollmentStatus]}</Badge>
+              )}
+              {child.hasAllergyAlert && (
                 <Badge tone="danger">
                   <HeartPulse aria-hidden="true" /> Allergy alert
                 </Badge>
@@ -69,6 +117,11 @@ export function ChildProfile({
                 </div>
               ))}
             </dl>
+            {canWrite && (
+              <div className="mt-4">
+                <EditChildDialog child={child} classrooms={classrooms} />
+              </div>
+            )}
           </div>
           <div className="flex flex-col gap-3 rounded-2xl border border-line bg-surface p-4 md:min-w-64">
             <div className="flex items-center justify-between gap-3">
@@ -111,24 +164,26 @@ export function ChildProfile({
           <TabsTrigger value="overview"><LayoutGrid aria-hidden="true" /> Overview</TabsTrigger>
           <TabsTrigger value="guardians"><UsersRound aria-hidden="true" /> Guardians</TabsTrigger>
           <TabsTrigger value="attendance"><ClipboardList aria-hidden="true" /> Attendance</TabsTrigger>
-          <TabsTrigger value="payments"><Wallet aria-hidden="true" /> Payments</TabsTrigger>
+          {billing && <TabsTrigger value="payments"><Wallet aria-hidden="true" /> Payments</TabsTrigger>}
           <TabsTrigger value="documents"><FileText aria-hidden="true" /> Documents</TabsTrigger>
           <TabsTrigger value="notes"><StickyNote aria-hidden="true" /> Notes</TabsTrigger>
         </TabsList>
         <TabsContent value="overview">
-          <ChildOverviewTab child={child} />
+          <ChildOverviewTab child={child} history={history} />
         </TabsContent>
         <TabsContent value="guardians">
           <ChildGuardiansTab child={child} />
         </TabsContent>
         <TabsContent value="attendance">
-          <ChildAttendanceTab child={child} />
+          <ChildAttendanceTab child={child} history={history} />
         </TabsContent>
-        <TabsContent value="payments">
-          <ChildPaymentsTab invoices={invoices} payments={payments} />
-        </TabsContent>
+        {billing && (
+          <TabsContent value="payments">
+            <ChildPaymentsTab childId={child.id} invoices={billing.invoices} payments={billing.payments} />
+          </TabsContent>
+        )}
         <TabsContent value="documents">
-          <ChildDocumentsTab documents={documents} />
+          <ChildDocumentsTab />
         </TabsContent>
         <TabsContent value="notes">
           <ChildNotesTab child={child} />

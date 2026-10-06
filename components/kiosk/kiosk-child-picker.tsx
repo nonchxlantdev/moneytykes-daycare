@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { SearchX } from "lucide-react";
 import type { Classroom } from "@/types/domain";
-import type { ChildRecord } from "@/lib/data";
+import type { ChildRecord } from "@/types/domain";
 import type { ChildDay } from "@/lib/domain/attendance";
 import { EmptyState } from "@/components/shared/empty-state";
 import { SearchInput } from "@/components/shared/search-input";

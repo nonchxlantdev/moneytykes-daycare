@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Separate Worker package (own tsconfig/types) and generated artefacts.
+    "cloudflare/**/node_modules/**",
+    "cloudflare/**/.wrangler/**",
+    "drizzle/**",
   ]),
 ]);
 

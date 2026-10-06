@@ -2,14 +2,14 @@
 
 import type { ReactNode } from "react";
 import { ClipboardList, HeartPulse, Phone, ShieldAlert, ShieldCheck, UserRound } from "lucide-react";
-import type { ChildRecord, GuardianLink } from "@/lib/data";
+import type { AttendanceEvent, ChildRecord, GuardianLink } from "@/types/domain";
 import { PersonAvatar } from "@/components/shared/child-avatar";
 import { useOrganization } from "@/components/shared/organization-provider";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { childHistory } from "@/lib/domain/attendance";
-import { useDemoStore } from "@/lib/store/demo-store";
+import { useCan } from "@/components/shared/viewer-provider";
 import { formatCalendarDate, formatTime, fullName } from "@/lib/utils";
 
 function InfoCard({ title, icon, children, className }: { title: string; icon: ReactNode; children: ReactNode; className?: string }) {
@@ -45,13 +45,14 @@ export function GuardianRow({ gl, showPhone = true }: { gl: GuardianLink; showPh
   );
 }
 
-export function ChildOverviewTab({ child }: { child: ChildRecord }) {
+export function ChildOverviewTab({ child, history }: { child: ChildRecord; history: AttendanceEvent[] }) {
   const org = useOrganization();
-  const { attendanceEvents } = useDemoStore();
+  const canMedical = useCan("children:read-medical");
+  const allergies = child.allergies ?? [];
   const primary = child.guardians.find((g) => g.link.isPrimary);
   const pickups = child.guardians.filter((g) => g.link.canPickUp);
   const emergency = child.guardians.filter((g) => g.link.isEmergencyContact);
-  const recent = childHistory(attendanceEvents, child.id, org.timezone).slice(0, 5);
+  const recent = childHistory(history, child.id, org.timezone).slice(0, 5);
 
   return (
     <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
@@ -61,6 +62,7 @@ export function ChildOverviewTab({ child }: { child: ChildRecord }) {
       </InfoCard>
 
       <InfoCard title="Authorized Pickups" icon={<ShieldCheck />}>
+        {pickups.length === 0 && <p className="text-sm text-ink-muted">No authorized pickups on file.</p>}
         <ul className="flex flex-col gap-3">
           {pickups.map((gl) => (
             <li key={gl.link.id}>
@@ -72,6 +74,7 @@ export function ChildOverviewTab({ child }: { child: ChildRecord }) {
       </InfoCard>
 
       <InfoCard title="Emergency Contact" icon={<ShieldAlert />}>
+        {emergency.length === 0 && <p className="text-sm text-ink-muted">No emergency contact on file.</p>}
         <ul className="flex flex-col gap-3">
           {emergency.map((gl) => (
             <li key={gl.link.id}>
@@ -83,8 +86,8 @@ export function ChildOverviewTab({ child }: { child: ChildRecord }) {
 
       <InfoCard title="Medical Notes" icon={<HeartPulse />} className="md:col-span-1">
         <div className="flex flex-wrap gap-1.5">
-          {child.allergies.length > 0 ? (
-            child.allergies.map((a) => (
+          {allergies.length > 0 ? (
+            allergies.map((a) => (
               <Badge key={a} tone="danger">
                 {a} allergy
               </Badge>
@@ -93,11 +96,16 @@ export function ChildOverviewTab({ child }: { child: ChildRecord }) {
             <Badge tone="success">No known allergies</Badge>
           )}
         </div>
-        <p className="mt-3 text-sm text-ink">{child.medicalNotes ?? "No additional medical notes."}</p>
+        {canMedical ? (
+          <p className="mt-3 text-sm whitespace-pre-wrap text-ink">{child.medicalNotes ?? "No additional medical notes."}</p>
+        ) : (
+          <p className="mt-3 text-sm text-ink-muted">Medical notes are restricted to owners and admins.</p>
+        )}
         <p className="mt-3 text-xs text-ink-subtle">Visible to staff with health-record permission only.</p>
       </InfoCard>
 
       <InfoCard title="Recent Attendance" icon={<ClipboardList />} className="md:col-span-2 xl:col-span-2">
+        {recent.length === 0 && <p className="text-sm text-ink-muted">No attendance recorded yet.</p>}
         <ul className="divide-y divide-line">
           {recent.map((d) => (
             <li key={d.date} className="flex items-center gap-3 py-2.5 text-sm">

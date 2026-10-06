@@ -1,0 +1,2 @@
+# Copy to .dev.vars for `wrangler dev`. Must match D1_GATEWAY_SECRET in the app's .env.local.
+GATEWAY_SECRET=

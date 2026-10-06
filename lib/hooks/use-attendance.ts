@@ -5,7 +5,7 @@ import type { Child, Staff } from "@/types/domain";
 import { useOrganization } from "@/components/shared/organization-provider";
 import { deriveDailyAttendance, summarize, type ChildDay } from "@/lib/domain/attendance";
 import { deriveStaffDay, type StaffDay } from "@/lib/domain/staff-time";
-import { useDemoStore } from "@/lib/store/demo-store";
+import { useLiveData } from "@/lib/store/live-data";
 import { dateKey } from "@/lib/utils/format";
 import { useNow } from "./use-now";
 
@@ -19,7 +19,7 @@ export function useTodayKey(): string {
 /** Today's derived attendance for the given children, keyed by child id. */
 export function useChildDays(children: Pick<Child, "id">[], date?: string) {
   const { timezone } = useOrganization();
-  const { attendanceEvents } = useDemoStore();
+  const { attendanceEvents } = useLiveData();
   const now = useNow();
   const today = useTodayKey();
   const target = date ?? today;
@@ -33,7 +33,7 @@ export function useChildDays(children: Pick<Child, "id">[], date?: string) {
 
 export function useStaffDays(staff: Staff[], date?: string) {
   const { timezone } = useOrganization();
-  const { staffTimeEvents } = useDemoStore();
+  const { staffTimeEvents } = useLiveData();
   const now = useNow();
   const today = useTodayKey();
   const target = date ?? today;

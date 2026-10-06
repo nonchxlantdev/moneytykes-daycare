@@ -19,7 +19,7 @@ import { useOrganization } from "@/components/shared/organization-provider";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { attendanceDates, countsByDate, hourlyTrend } from "@/lib/domain/attendance";
 import { useTodayKey } from "@/lib/hooks/use-attendance";
-import { useDemoStore } from "@/lib/store/demo-store";
+import { useLiveData } from "@/lib/store/live-data";
 
 const SERIES = {
   checkIns: { label: "Check-ins", color: "var(--brand-primary)" },
@@ -60,7 +60,7 @@ function ChartTooltip({ active, payload, label }: TooltipContentProps<ValueType,
 /** Children checked in / out per school day (last 5 days with data). */
 export function AttendanceOverviewChart() {
   const org = useOrganization();
-  const { attendanceEvents } = useDemoStore();
+  const { attendanceEvents } = useLiveData();
   const data = useMemo(() => {
     const dates = attendanceDates(attendanceEvents, org.timezone).slice(0, 5).reverse();
     return countsByDate(attendanceEvents, dates, org.timezone).map((d) => {
@@ -101,7 +101,7 @@ export function AttendanceOverviewChart() {
 export function CheckInOutTrendChart() {
   const org = useOrganization();
   const today = useTodayKey();
-  const { attendanceEvents } = useDemoStore();
+  const { attendanceEvents } = useLiveData();
   const data = useMemo(
     () =>
       hourlyTrend(attendanceEvents, today, org.timezone).map((r) => ({

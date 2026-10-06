@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { CalendarRange, ClipboardCheck, Download, Eye, FileSpreadsheet, History, Printer, Timer, Wallet } from "lucide-react";
 import type { Payment, Staff } from "@/types/domain";
-import type { ChildRecord } from "@/lib/data";
+import type { ChildRecord } from "@/types/domain";
 import { DailyAttendanceTable } from "@/components/attendance/daily-attendance-table";
 import { EmptyState } from "@/components/shared/empty-state";
 import { useOrganization } from "@/components/shared/organization-provider";
@@ -14,7 +14,7 @@ import { Input, Label } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useTodayKey } from "@/lib/hooks/use-attendance";
 import { useNow } from "@/lib/hooks/use-now";
-import { useDemoStore } from "@/lib/store/demo-store";
+import { useLiveData } from "@/lib/store/live-data";
 import { cn, formatCalendarDate } from "@/lib/utils";
 import { downloadText, toCsv } from "@/lib/utils/csv";
 import {
@@ -47,7 +47,7 @@ export function ReportsCenter({ roster, staff, payments: seeded }: { roster: Chi
   const org = useOrganization();
   const now = useNow();
   const today = useTodayKey();
-  const { attendanceEvents, staffTimeEvents, sessionPayments } = useDemoStore();
+  const { attendanceEvents, staffTimeEvents, sessionPayments } = useLiveData();
   const [report, setReport] = useState<ReportId>("daily");
   const [preset, setPreset] = useState<RangePreset>("today");
   const [custom, setCustom] = useState<DateRange>({ from: today, to: today });

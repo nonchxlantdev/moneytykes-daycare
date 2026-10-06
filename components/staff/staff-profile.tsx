@@ -1,24 +1,29 @@
 "use client";
 
 import { useMemo } from "react";
-import { CalendarDays, Clock, Mail, Phone, Timer } from "lucide-react";
-import type { Staff } from "@/types/domain";
+import { CalendarDays, Clock, KeyRound, Mail, Pencil, Phone, Timer } from "lucide-react";
+import type { Classroom, Staff } from "@/types/domain";
 import { PersonAvatar } from "@/components/shared/child-avatar";
 import { useOrganization } from "@/components/shared/organization-provider";
 import { StatusBadge } from "@/components/shared/status-badge";
+import { useCan } from "@/components/shared/viewer-provider";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { timesheet } from "@/lib/domain/staff-time";
 import { useStaffDays } from "@/lib/hooks/use-attendance";
 import { useNow } from "@/lib/hooks/use-now";
-import { useDemoStore } from "@/lib/store/demo-store";
+import { useLiveData } from "@/lib/store/live-data";
+import { EMPLOYMENT_LABEL, StaffFormDialog } from "./staff-form-dialog";
 import { distinctDates, formatCalendarDate, formatDuration, formatTime, fullName } from "@/lib/utils";
 
-export function StaffProfile({ member, classroomName }: { member: Staff; classroomName?: string }) {
+export function StaffProfile({ member, classrooms }: { member: Staff; classrooms: Classroom[] }) {
   const org = useOrganization();
+  const canManage = useCan("staff:manage");
+  const classroomName = classrooms.find((c) => c.id === member.classroomId)?.name;
   const now = useNow();
-  const { staffTimeEvents } = useDemoStore();
+  const { staffTimeEvents } = useLiveData();
   const { byStaff } = useStaffDays([member]);
   const today = byStaff.get(member.id);
 
@@ -45,19 +50,42 @@ export function StaffProfile({ member, classroomName }: { member: Staff; classro
             {today && <StatusBadge status={today.status} />}
           </div>
           <p className="mt-1 text-ink-muted">
-            {member.role}
-            {classroomName && <> · {classroomName}</>} · since {formatCalendarDate(member.hiredOn)}
+            {member.jobTitle}
+            {classroomName && <> · {classroomName}</>}
+            {member.hiredOn && <> · since {formatCalendarDate(member.hiredOn)}</>}
           </p>
           <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm text-ink-muted">
+            {member.phone && (
+              <span className="flex items-center gap-1.5">
+                <Phone className="size-4" aria-hidden="true" /> {member.phone}
+              </span>
+            )}
+            {member.email && (
+              <span className="flex items-center gap-1.5">
+                <Mail className="size-4" aria-hidden="true" /> {member.email}
+              </span>
+            )}
             <span className="flex items-center gap-1.5">
-              <Phone className="size-4" aria-hidden="true" /> {member.phone}
-            </span>
-            <span className="flex items-center gap-1.5">
-              <Mail className="size-4" aria-hidden="true" /> {member.email}
+              <KeyRound className="size-4" aria-hidden="true" /> {member.hasPin ? "Time-clock PIN set" : "No time-clock PIN"}
             </span>
           </div>
         </div>
-        {member.leaveReason && <Badge tone="warning">{member.leaveReason}</Badge>}
+        <div className="flex flex-col items-start gap-3 md:items-end">
+          {member.employmentStatus !== "ACTIVE" && (
+            <Badge tone="warning">{member.statusNote ?? EMPLOYMENT_LABEL[member.employmentStatus]}</Badge>
+          )}
+          {canManage && (
+            <StaffFormDialog
+              member={member}
+              classrooms={classrooms}
+              trigger={
+                <Button variant="outline" size="sm">
+                  <Pencil /> Edit
+                </Button>
+              }
+            />
+          )}
+        </div>
       </Card>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -90,6 +118,13 @@ export function StaffProfile({ member, classroomName }: { member: Staff; classro
               </TableRow>
             </TableHeader>
             <TableBody>
+              {sheet.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={4} className="py-8 text-center text-ink-muted">
+                    No clock events yet.
+                  </TableCell>
+                </TableRow>
+              )}
               {sheet.map((d) => (
                 <TableRow key={d.date}>
                   <TableCell className="font-semibold">{formatCalendarDate(d.date)}</TableCell>

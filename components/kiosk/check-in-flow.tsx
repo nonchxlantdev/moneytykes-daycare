@@ -5,14 +5,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence } from "motion/react";
 import { ArrowRight, Check, House, LoaderCircle, LogOut, RotateCcw } from "lucide-react";
-import type { Classroom } from "@/types/domain";
-import type { ChildRecord, GuardianLink } from "@/lib/data";
+import type { ChildRecord, Classroom, GuardianLink } from "@/types/domain";
 import { useOrganization } from "@/components/shared/organization-provider";
 import { useChildDays } from "@/lib/hooks/use-attendance";
-import { DEMO_KIOSK_DEVICE_ID, newEventId } from "@/lib/kiosk/device";
-import { uploadSignature } from "@/lib/services/signature-storage";
-import { useDemoStore } from "@/lib/store/demo-store";
-import { dateKey, formatCalendarDate, formatTime, fullName } from "@/lib/utils";
+import { newClientEventId } from "@/lib/kiosk/device";
+import { checkInChildAction } from "@/lib/server/actions";
+import { isUsableSignature } from "@/lib/services/signature-storage";
+import { formatCalendarDate, formatTime, fullName } from "@/lib/utils";
 import { ChildSummaryCard } from "./child-summary-card";
 import { GuardianVerification } from "./guardian-verification";
 import { KioskChildPicker } from "./kiosk-child-picker";
@@ -70,7 +69,7 @@ export function CheckInFlow({
 }) {
   const org = useOrganization();
   const router = useRouter();
-  const { recordAttendanceEvent } = useDemoStore();
+  const clientEventId = useRef<string | null>(null);
   const { byChild } = useChildDays(roster);
   const [state, dispatch] = useReducer(
     reducer,
@@ -92,30 +91,24 @@ export function CheckInFlow({
     setSubmitting(true);
     setError(undefined);
     try {
-      const blob = await padRef.current.toBlob();
-      if (!blob) throw new Error("Please sign before confirming.");
-      const id = newEventId();
-      const eventTime = new Date().toISOString();
-      const signatureObjectKey = await uploadSignature({
-        organizationId: org.id,
-        eventId: id,
-        date: dateKey(eventTime, org.timezone),
-        blob,
-      });
-      recordAttendanceEvent({
-        id,
-        organizationId: org.id,
-        childId: child.id,
-        guardianId,
-        type: "CHECK_IN",
-        eventTime,
-        deviceId: DEMO_KIOSK_DEVICE_ID,
-        signatureObjectKey,
-      });
+      if (!isUsableSignature(await padRef.current.toBlob())) {
+        setError("Please sign before confirming.");
+        return;
+      }
+      // Reused if this submission is retried, so the server can de-duplicate.
+      clientEventId.current ??= newClientEventId();
+      const result = await checkInChildAction({ childId: child.id, guardianId, clientEventId: clientEventId.current });
+      if (!result.ok) {
+        setError(result.error.message);
+        return;
+      }
+      // Success screen only after the server confirmed persistence.
+      clientEventId.current = null;
       setHasInk(false);
-      dispatch({ type: "SIGNED", eventTime });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong. Please try again.");
+      router.refresh();
+      dispatch({ type: "SIGNED", eventTime: result.data.event.eventTime });
+    } catch {
+      setError("We couldn't reach the server. Check the connection and try again.");
     } finally {
       setSubmitting(false);
     }
@@ -158,7 +151,7 @@ export function CheckInFlow({
               photoUrl={child.photoUrl}
               rows={[
                 { label: "Date of Birth", value: formatCalendarDate(child.dateOfBirth) },
-                { label: "Class", value: classroomName(child.classroomId) },
+                { label: "Class", value: child.classroomId ? classroomName(child.classroomId) : "—" },
                 {
                   label: "Authorized Pickup",
                   value: `${child.guardians.filter((g) => g.link.canPickUp).length} Guardians`,
@@ -200,7 +193,7 @@ export function CheckInFlow({
             guardians={child.guardians}
             onVerified={(g: GuardianLink) => dispatch({ type: "VERIFIED", guardianId: g.guardian.id })}
           />
-          <p className="mt-6 text-center text-sm text-ink-subtle">Demo: any 4-digit PIN is accepted.</p>
+          <p className="mt-6 text-center text-sm text-ink-subtle">Simplified check: guardian PINs are not verified yet — any 4 digits are accepted.</p>
           <div className="mt-6">
             <KioskBackButton onClick={() => dispatch({ type: "BACK" })} />
           </div>

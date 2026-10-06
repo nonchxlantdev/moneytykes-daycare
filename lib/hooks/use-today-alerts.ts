@@ -8,7 +8,8 @@ import { useChildDays } from "./use-attendance";
 export interface AlertInputs {
   children: Array<{ id: string; firstName: string; lastName: string }>;
   staffOnLeave: Array<{ name: string; reason: string }>;
-  outstandingFamilies: number;
+  /** null when the viewer isn't allowed to see billing. */
+  outstandingFamilies: number | null;
 }
 
 export interface TodayAlert {
@@ -46,7 +47,7 @@ export function useTodayAlerts(inputs: AlertInputs): TodayAlert[] {
         href: "/attendance",
       });
     }
-    if (inputs.outstandingFamilies > 0) {
+    if (inputs.outstandingFamilies) {
       alerts.push({
         id: "payments-due",
         tone: "warning",

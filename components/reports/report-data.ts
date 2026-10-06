@@ -1,5 +1,5 @@
 import type { AttendanceEvent, Payment, Staff, StaffTimeEvent } from "@/types/domain";
-import type { ChildRecord } from "@/lib/data";
+import type { ChildRecord } from "@/types/domain";
 import { deriveDailyAttendance, summarize, type ChildDay } from "@/lib/domain/attendance";
 import { timesheet } from "@/lib/domain/staff-time";
 import { dateKey, formatCurrency, formatDuration, formatTime, fullName } from "@/lib/utils";
@@ -118,7 +118,7 @@ export function staffHoursReport(staff: Staff[], events: StaffTimeEvent[], range
     const sheet = timesheet(s.id, events, dates, tz, now).filter((d) => d.workedMs > 0);
     const worked = sheet.reduce((a, d) => a + d.workedMs, 0);
     total += worked;
-    return [fullName(s), s.role, String(sheet.length), formatDuration(worked), sheet.length ? formatDuration(worked / sheet.length) : "—"];
+    return [fullName(s), s.jobTitle, String(sheet.length), formatDuration(worked), sheet.length ? formatDuration(worked / sheet.length) : "—"];
   });
   return {
     headers: ["Staff member", "Role", "Days worked", "Total hours", "Avg. shift"],

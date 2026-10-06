@@ -16,14 +16,17 @@ import { Card } from "@/components/ui/card";
 import { timesheet } from "@/lib/domain/staff-time";
 import { useStaffDays } from "@/lib/hooks/use-attendance";
 import { useNow } from "@/lib/hooks/use-now";
-import { useDemoStore } from "@/lib/store/demo-store";
+import { useCan } from "@/components/shared/viewer-provider";
+import { useLiveData } from "@/lib/store/live-data";
+import { EMPLOYMENT_LABEL, StaffFormDialog } from "./staff-form-dialog";
 import { distinctDates, formatDuration, formatTime, fullName } from "@/lib/utils";
 
 export function StaffDirectory({ staff, classrooms }: { staff: Staff[]; classrooms: Classroom[] }) {
   const org = useOrganization();
   const now = useNow();
-  const { staffTimeEvents } = useDemoStore();
+  const { staffTimeEvents } = useLiveData();
   const { byStaff, onDuty } = useStaffDays(staff);
+  const canManage = useCan("staff:manage");
   const [query, setQuery] = useState("");
   const classroomName = new Map(classrooms.map((c) => [c.id, c.name]));
 
@@ -37,7 +40,7 @@ export function StaffDirectory({ staff, classrooms }: { staff: Staff[]; classroo
     [staff, staffTimeEvents, recentDates, org.timezone, now],
   );
 
-  const visible = staff.filter((s) => `${fullName(s)} ${s.role}`.toLowerCase().includes(query.trim().toLowerCase()));
+  const visible = staff.filter((s) => `${fullName(s)} ${s.jobTitle}`.toLowerCase().includes(query.trim().toLowerCase()));
 
   return (
     <div className="mx-auto flex max-w-[1400px] flex-col gap-6 animate-in fade-in-0 duration-500">
@@ -51,9 +54,16 @@ export function StaffDirectory({ staff, classrooms }: { staff: Staff[]; classroo
                 <Clock /> Time clock
               </Link>
             </Button>
-            <Button disabled title="Staff invitations arrive with authentication (Phase 2)">
-              <Plus /> Add Staff
-            </Button>
+            {canManage && (
+              <StaffFormDialog
+                classrooms={classrooms}
+                trigger={
+                  <Button>
+                    <Plus /> Add Staff
+                  </Button>
+                }
+              />
+            )}
           </>
         }
       />
@@ -74,7 +84,7 @@ export function StaffDirectory({ staff, classrooms }: { staff: Staff[]; classroo
                       <PersonAvatar name={fullName(s)} size="lg" />
                       <div className="min-w-0 flex-1">
                         <p className="truncate font-bold text-ink group-hover:text-primary">{fullName(s)}</p>
-                        <p className="text-sm text-ink-muted">{s.role}</p>
+                        <p className="text-sm text-ink-muted">{s.jobTitle}</p>
                         {s.classroomId && (
                           <Badge tone="secondary" className="mt-2">
                             {classroomName.get(s.classroomId)}
@@ -87,7 +97,7 @@ export function StaffDirectory({ staff, classrooms }: { staff: Staff[]; classroo
                       <div>
                         <dt className="text-xs text-ink-subtle">Today</dt>
                         <dd className="font-semibold text-ink tabular">
-                          {day?.clockIn ? formatTime(day.clockIn.eventTime, org.timezone) : s.leaveReason ?? "—"}
+                          {day?.clockIn ? formatTime(day.clockIn.eventTime, org.timezone) : (s.employmentStatus !== "ACTIVE" ? (s.statusNote ?? EMPLOYMENT_LABEL[s.employmentStatus]) : "—")}
                           {day?.clockOut ? ` – ${formatTime(day.clockOut.eventTime, org.timezone)}` : ""}
                         </dd>
                       </div>
@@ -97,12 +107,16 @@ export function StaffDirectory({ staff, classrooms }: { staff: Staff[]; classroo
                       </div>
                     </dl>
                     <div className="mt-4 flex flex-col gap-1 text-sm text-ink-muted">
-                      <span className="flex items-center gap-2">
-                        <Phone className="size-3.5" aria-hidden="true" /> {s.phone}
-                      </span>
-                      <span className="flex items-center gap-2 truncate">
-                        <Mail className="size-3.5" aria-hidden="true" /> {s.email}
-                      </span>
+                      {s.phone && (
+                        <span className="flex items-center gap-2">
+                          <Phone className="size-3.5" aria-hidden="true" /> {s.phone}
+                        </span>
+                      )}
+                      {s.email && (
+                        <span className="flex items-center gap-2 truncate">
+                          <Mail className="size-3.5" aria-hidden="true" /> {s.email}
+                        </span>
+                      )}
                     </div>
                   </Link>
                 </Card>

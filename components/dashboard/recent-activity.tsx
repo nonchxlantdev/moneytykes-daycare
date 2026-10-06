@@ -4,29 +4,27 @@ import { useMemo } from "react";
 import Link from "next/link";
 import { History } from "lucide-react";
 import type { Staff } from "@/types/domain";
-import type { ActivityNote, ChildRecord } from "@/lib/data";
+import type { ChildRecord } from "@/types/domain";
 import { EmptyState } from "@/components/shared/empty-state";
 import { useOrganization } from "@/components/shared/organization-provider";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useTodayKey } from "@/lib/hooks/use-attendance";
-import { useDemoStore } from "@/lib/store/demo-store";
+import { useLiveData } from "@/lib/store/live-data";
 import { dateKey, formatTime, fullName } from "@/lib/utils";
 import { ActivityTimeline, type ActivityItem } from "./activity-timeline";
 
 export function RecentActivity({
   roster,
   staff,
-  notes,
   limit = 7,
 }: {
   roster: ChildRecord[];
   staff: Staff[];
-  notes: ActivityNote[];
   limit?: number;
 }) {
   const org = useOrganization();
   const today = useTodayKey();
-  const { attendanceEvents, staffTimeEvents } = useDemoStore();
+  const { attendanceEvents, staffTimeEvents } = useLiveData();
 
   const items = useMemo<ActivityItem[]>(() => {
     const childName = new Map(roster.map((c) => [c.id, fullName(c)]));
@@ -49,17 +47,9 @@ export function RecentActivity({
         actor: `${staffName.get(e.staffId) ?? "Staff"} (Staff)`,
         action: e.type === "CLOCK_IN" ? "clocked in" : "clocked out",
       })),
-      ...notes.filter((n) => isToday(n.at)).map((n) => ({
-        id: n.id,
-        at: n.at,
-        time: formatTime(n.at, org.timezone),
-        kind: "NOTE" as const,
-        actor: "System",
-        action: n.message,
-      })),
     ];
     return rows.sort((a, b) => b.at.localeCompare(a.at)).slice(0, limit);
-  }, [attendanceEvents, staffTimeEvents, notes, roster, staff, org.timezone, today, limit]);
+  }, [attendanceEvents, staffTimeEvents, roster, staff, org.timezone, today, limit]);
 
   return (
     <Card>

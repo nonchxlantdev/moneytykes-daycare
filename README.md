@@ -1,179 +1,281 @@
-# White-Label Daycare Management SaaS — Phase 1 Prototype
+# White-Label Daycare Management SaaS — Phase 2 (Cloudflare D1)
 
-A high-fidelity, interactive frontend for a **multi-tenant, white-label daycare management platform** built by Vision Forge Ltd. Each daycare (tenant) gets its own name, logo, colors, contact details, receipts and kiosk greeting — all from configuration, from one codebase.
+A **multi-tenant, white-label daycare management platform** built by Vision Forge Ltd. Each daycare (tenant) gets its own name, logo, colors, contact details, receipts and kiosk greeting from configuration, on one codebase.
 
-> **Little Stars Daycare** ("Learn • Play • Grow") is **sample tenant data only**. No customer-facing screen hard-codes it, and no Vision Forge branding appears in the tenant UI.
+Phase 1 was a high-fidelity frontend on mock data. **Phase 2 makes the core real:** organizations, members and roles, children, guardians, staff, kiosk check-in/out, the staff time clock, branding and settings are stored in **Cloudflare D1** through Drizzle ORM, with server-side tenant isolation, role checks, validation and audit logging. Billing, documents, messaging and other modules are still mock or placeholders (see [What is still mock](#what-is-still-mock-phase-3)).
 
-Phase 1 is deliberately frontend-only: realistic mock data behind a data-access layer that Phase 2 replaces with Cloudflare D1 / R2.
+> **Little Stars Daycare** is **sample data** created by the development seed. No screen hard-codes it, and no Vision Forge branding appears inside a tenant.
 
 ---
 
-## Tech stack
+## Contents
+
+- [What's real in Phase 2](#whats-real-in-phase-2)
+- [Architecture](#architecture)
+- [Quick start (local)](#quick-start-local)
+- [Environment variables](#environment-variables)
+- [Database, migrations and seed](#database-migrations-and-seed)
+- [Multi-tenancy and security](#multi-tenancy-and-security)
+- [Roles and permissions](#roles-and-permissions)
+- [Attendance and the kiosk](#attendance-and-the-kiosk)
+- [Branding and settings](#branding-and-settings)
+- [What is still mock (Phase 3)](#what-is-still-mock-phase-3)
+- [Routes](#routes)
+- [Project structure](#project-structure)
+- [Testing](#testing)
+- [Authentication](#authentication)
+- [Deployment](#deployment)
+- [Troubleshooting](#troubleshooting)
+
+## What's real in Phase 2
+
+| Area | Status |
+|---|---|
+| Organizations, branding, settings | ✅ D1 — persisted, audit-logged, owner/admin only |
+| Users, memberships, roles | ✅ D1 — identity → user → membership → organization, resolved on the server |
+| Children (create, edit, status, notes, allergies, medical notes) | ✅ D1 |
+| Guardians and child ↔ guardian links (primary, authorized pickup, emergency contact) | ✅ D1 |
+| Staff (create, edit, status, time-clock PIN — bcrypt-hashed) | ✅ D1 |
+| Kiosk check-in / check-out | ✅ D1 — event-based, idempotent, state machine, audit log |
+| Staff time clock | ✅ D1 — real PIN verification on the server |
+| Dashboard, attendance register, reports (attendance & staff hours) | ✅ derived from D1 events |
+| Guardian kiosk PIN | ⚠️ **Simplified** — any 4 digits; labelled on screen |
+| Signatures | ⚠️ Required on screen but **not stored** (`signature_object_key` stays `NULL`) |
+| Payments, invoices, receipts, payment reports | 🧪 Mock (sample data generated from the real roster) |
+| Documents, messages, calendar | 🗓️ Placeholders |
+
+## Architecture
+
+```
+Browser (admin dashboard / kiosk tablet)
+   │  server actions + server components (no client-side DB access)
+   ▼
+Next.js 16 on Vercel
+   │  lib/auth          → who is signed in (signed session cookie)
+   │  lib/server        → tenant context, RBAC, Zod validation, services, audit
+   │  lib/db            → Drizzle ORM (sqlite-proxy driver)
+   │  HMAC-signed HTTPS (D1_GATEWAY_SECRET)
+   ▼
+D1 gateway Worker (cloudflare/d1-gateway) ──binding──▶ Cloudflare D1
+```
 
 | Area | Choice |
 |---|---|
-| Framework | Next.js 16 (App Router, Turbopack), React 19, TypeScript (strict) |
-| Styling | Tailwind CSS v4 + CSS design tokens (`app/globals.css`) |
-| Components | shadcn/ui pattern (Radix primitives via `radix-ui`, `class-variance-authority`, `tailwind-merge`) in `components/ui` |
-| Icons | lucide-react |
-| Motion | `motion` (Framer Motion) — kiosk transitions, success check, confetti |
-| Forms | React Hook Form + Zod (`lib/validation/schemas.ts`) |
-| Charts | Recharts |
-| Font | Plus Jakarta Sans (self-hosted via `@fontsource-variable`, no external font request) |
+| Framework | Next.js 16 (App Router), React 19, TypeScript (strict) |
+| Data | Cloudflare D1 (SQLite), Drizzle ORM + drizzle-kit migrations, a small gateway Worker |
+| Validation | Zod (`lib/validation/mutations.ts`) — on the server for every mutation, reused by forms |
+| Styling / UI | Tailwind CSS v4, shadcn/ui-style components on Radix, lucide-react, motion, Recharts |
+| Forms | React Hook Form + Zod |
+| Tests | Vitest + an in-memory SQLite database that applies the real migrations |
 
-> The shadcn CLI registry wasn't reachable from the build environment, so the shadcn components were authored directly in the same structure (`components.json` is present). `npx shadcn add <component>` works normally on your machine.
+Why a gateway Worker instead of the D1 REST API: D1 is only reachable natively from Workers, and the REST API is intended for administrative use with account-wide rate limits. Details in [docs/CLOUDFLARE_SETUP.md](docs/CLOUDFLARE_SETUP.md).
 
-## Local development
+**Request flow for every protected read and write:**
+
+1. `lib/auth/credentials.ts` reads the signed session → an identity with an `auth_provider_id`.
+2. `lib/server/tenant-context.ts` finds the `users` row for that id, its oldest **ACTIVE** membership, and that membership's **ACTIVE/TRIAL** organization → `{ user, organizationId, role }`.
+3. A service in `lib/server/services/*` checks the permission, validates input with Zod, and runs queries that are **always** filtered by that `organizationId`.
+4. Mutations write the change and an `audit_logs` row in one atomic batch, then `revalidatePath` refreshes every page.
+
+## Quick start (local)
+
+Requires Node.js 20.9+ (22 LTS recommended).
 
 ```bash
 npm install
-npm run dev          # http://localhost:3000
-npm run lint
-npx tsc --noEmit     # type-check
-npm run build && npm start
+npm --prefix cloudflare/d1-gateway install
+
+cp .env.example .env.local                                   # Windows: copy
+cp cloudflare/d1-gateway/.dev.vars.example cloudflare/d1-gateway/.dev.vars
+#   .env.local:   SESSION_SECRET, AUTH_PASSWORD_HASH, D1_GATEWAY_URL=http://127.0.0.1:8787, D1_GATEWAY_SECRET
+#   .dev.vars:    GATEWAY_SECRET = the same value as D1_GATEWAY_SECRET
+
+npm run db:migrate:local
+npm run db:seed:local -- --admin-email you@example.com --admin-name "Your Name"
+
+npm run gateway:dev      # terminal 1 — D1 gateway on http://127.0.0.1:8787
+npm run dev              # terminal 2 — app on http://localhost:3000
 ```
 
-Requires Node.js 20.9+ (Node 22 LTS recommended).
+Sign in with your site password. Demo staff time-clock PINs are printed by the seed (Sarah Wilson `1234`, Michael Carter `2345`, Jasmine Green `3456`, David Thompson `4567`, …). Guardian kiosk PINs accept any 4 digits.
 
-### Demo tips
+| Script | What it does |
+|---|---|
+| `npm run dev` / `build` / `start` | Next.js |
+| `npm run lint` · `npm run typecheck` · `npm test` | ESLint · TypeScript · Vitest |
+| `npm run db:generate` | Generate a new SQL migration from `lib/db/schema` |
+| `npm run db:migrate:local` / `db:migrate:remote` | Apply migrations (explicit; remote asks for confirmation) |
+| `npm run db:seed:local` / `db:seed:remote` | Development seed (remote needs `--confirm-remote <db name>`) |
+| `npm run gateway:dev` / `gateway:deploy` | Run / deploy the D1 gateway Worker |
+| `npm run hash-password -- "…"` | bcrypt hash for `AUTH_PASSWORD_HASH` |
 
-- `/` is a development launcher → **Admin Dashboard** or **Front Desk Kiosk**.
-- Kiosk guardian PIN: **any 4 digits** (mock). Staff time-clock PINs: `1234` Sarah Wilson, `2345` Michael Carter, `3456` Jasmine Green, `4567` David Thompson, `5678` Maria Lopez, `6789` Kevin Brooks, `7890` Angela Reyes (also shown on-screen under "Demo PINs").
-- Check a child in on the kiosk, then tap **Staff: exit kiosk mode** — the dashboard updates live (events are held in an in-memory store for the session; a full page reload restores the seed).
-- **Settings → Branding**: try a palette, rename the daycare, remove the logo, then **Apply to this session** — the sidebar, kiosk and receipts all re-theme.
+## Environment variables
+
+See `.env.example`. Nothing here may be exposed to the browser (no `NEXT_PUBLIC_*` variables are used).
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `SESSION_SECRET` | yes | Signs the session cookie (≥ 32 chars). |
+| `AUTH_PASSWORD_HASH` | yes | bcrypt hash of the site password. |
+| `AUTH_USER_NAME`, `AUTH_EMAIL` | optional | Name/email of the person who signs in; used by the seed for the owner's `users` row. |
+| `D1_GATEWAY_URL` | yes | Gateway Worker URL. |
+| `D1_GATEWAY_SECRET` | yes | Shared HMAC secret (≥ 32 chars); equals the Worker's `GATEWAY_SECRET`. |
+| `SEED_ADMIN_EMAIL`, `SEED_ADMIN_AUTH_ID`, `SEED_ADMIN_NAME` | seed only | Optional seed overrides. Never set these on Vercel. |
+
+Worker secret: `GATEWAY_SECRET` (`.dev.vars` locally, `wrangler secret put` in Cloudflare).
+
+**Vercel:** set `D1_GATEWAY_URL`, `D1_GATEWAY_SECRET`, `SESSION_SECRET` and `AUTH_PASSWORD_HASH` for **Production**, **Preview** and **Development** (plus the optional `AUTH_USER_NAME` / `AUTH_EMAIL`). Point Preview at a staging Worker/database if you don't want previews to touch production data. Full table in [docs/CLOUDFLARE_SETUP.md § 8](docs/CLOUDFLARE_SETUP.md#8-vercel-environment-variables).
+
+## Database, migrations and seed
+
+**Schema** (`lib/db/schema`, one migration in `drizzle/migrations/0000_init.sql`):
+
+| Table | Notes |
+|---|---|
+| `organizations` | Tenant: name, slug (unique), status, timezone, currency, structured address, phone, email, website, expected arrival time |
+| `organization_branding` | 1:1 — logo URL, colors, kiosk welcome, receipt identity |
+| `users` | Maps an external `auth_provider_id` (unique) to an app user. **No passwords.** |
+| `organization_memberships` | `PLATFORM_ADMIN` / `DAYCARE_OWNER` / `DAYCARE_ADMIN` / `DAYCARE_STAFF`; unique (organization, user) |
+| `classrooms` | Per-tenant class names |
+| `children` | Enrollment status, class, allergy / medical / general notes (medical notes only selected on the profile) |
+| `guardians`, `child_guardians` | Many-to-many with `is_primary`, `authorized_pickup`, `emergency_contact`; `guardians.pin_hash` reserved for Phase 3 |
+| `staff` | Job title, class, employment status, `pin_hash` (bcrypt only) |
+| `devices` | Registered kiosks (device auth is Phase 3) |
+| `attendance_events` | Immutable CHECK_IN / CHECK_OUT events; unique (organization, `client_event_id`) |
+| `staff_time_events` | Immutable CLOCK_IN / CLOCK_OUT events; unique (organization, `client_event_id`) |
+| `audit_logs` | Every meaningful mutation (no secrets, no medical values) |
+
+Every tenant table has `organization_id` and composite indexes that start with it (e.g. `attendance_events (organization_id, child_id, event_time)`).
+
+**Time.** Instants are stored as UTC milliseconds and displayed in the organization's timezone (`lib/utils/timezone.ts` is DST-safe and never assumes the server's timezone). Birthdays and hire dates are plain `YYYY-MM-DD`.
+
+**Migrations** are generated (`npm run db:generate`) and applied **only** by explicit commands (`npm run db:migrate:local|remote`). Nothing runs migrations automatically. The Worker refuses schema-changing SQL.
+
+**Seed** (`scripts/seed`) — development only, never automatic, `INSERT OR IGNORE` only. Creates Little Stars Daycare (4 classes, 34 children including the eight named demo children, ~80 guardians, 8 staff with hashed PINs, a Front Desk iPad device, ~10 weekdays of history plus today), a second tenant for isolation checks, and links your identity as `DAYCARE_OWNER` by `auth_provider_id` (default `password:usr_bootstrap`). See [docs/CLOUDFLARE_SETUP.md § 7](docs/CLOUDFLARE_SETUP.md#7-seed-sample-data-development-only).
+
+## Multi-tenancy and security
+
+- **The browser never chooses the tenant.** No server action or schema accepts an `organizationId`; it always comes from the session → membership lookup. IDs from the browser (child, guardian, staff) are looked up **within** the caller's organization, so another tenant's ID behaves exactly like a non-existent one ("not found").
+- **Server-side RBAC** on every protected read and mutation (`assertCan`). The UI only hides what the role can't use; pages for owners/admins redirect others to `/forbidden`.
+- **Validation:** Zod on the server for every mutation (`lib/validation/mutations.ts`).
+- **Safe errors:** services throw `AppError`s with user-safe messages; everything else becomes a generic message (`toSafeError`). SQL, stack traces, credentials and tokens are only written to server logs. Route error boundaries show a reference code only.
+- **PINs:** staff PINs are bcrypt-hashed (cost 10), never returned to the client, re-verified on every clock action, and unique within an organization.
+- **Sensitive data:** medical notes are only selected on the child profile for roles with `children:read-medical`; audit logs record changed field names, not values.
+- **Gateway:** requests are HMAC-SHA256 signed with a 60-second window; the secret exists only on the Vercel server and in the Worker.
+- **Freshness:** all tenant pages are dynamic; every mutation revalidates the layout; the dashboard, attendance and kiosk roster refresh every 30 s while visible, so another device's check-ins appear without a reload.
+
+## Roles and permissions
+
+| Permission | Owner | Admin | Staff |
+|---|:-:|:-:|:-:|
+| View children, guardians, staff, attendance | ✅ | ✅ | ✅ |
+| Record attendance (kiosk) and use the staff clock | ✅ | ✅ | ✅ |
+| See medical notes | ✅ | ✅ | — |
+| Create/edit children and guardians | ✅ | ✅ | — |
+| Manage staff (incl. PINs) | ✅ | ✅ | — |
+| Payments, reports | ✅ | ✅ | — |
+| Settings and branding | ✅ | ✅ | — |
+
+`PLATFORM_ADMIN` currently has owner-level access to organizations it is a member of; cross-tenant platform tools are Phase 3. Defined in `lib/server/permissions.ts`.
+
+## Attendance and the kiosk
+
+- **Event-based.** There is no `checked_in` column; status is derived from the latest event.
+- **State machine (server-side):** CHECK_IN only when the child's latest event is not CHECK_IN; CHECK_OUT only when it is. A second check-in/out is rejected with a clear message. The rule is enforced *inside* the insert (`INSERT … SELECT … WHERE latest = expected`), so two tablets tapping at the same moment can't both succeed. Same for CLOCK_IN / CLOCK_OUT.
+- **Idempotent.** Each kiosk submission carries a client-generated `client_event_id` that is reused on retry; a repeated request returns the original event instead of creating a duplicate.
+- **Audited.** Each event and its `audit_logs` row are written in one atomic batch.
+- **Validated.** Withdrawn/inactive children can't be checked in; the guardian must be linked to the child, and must be an **authorized pickup** to check out.
+- **No premature success.** The kiosk shows "Checked In!" / "Checked Out!" / "Clocked In!" only after the server confirms the write; failures show the server's message and keep the screen so the user can retry.
+- **Guardian PIN (simplified).** Any 4 digits pass and the kiosk says so. The selected guardian is still recorded and validated on the server. Real guardian PINs use the reserved `guardians.pin_hash` column in Phase 3.
+- **Staff PIN (real).** Verified against bcrypt hashes on the server; the kiosk never receives the staff list or any hash.
+- **Signatures.** The kiosk still requires a signature, but the image is discarded after submission. Nothing is stored in D1 or the browser; `signature_object_key` stays `NULL` until R2 storage (Phase 3, seam in `lib/services/signature-storage.ts`).
+- **Device.** The kiosk runs inside the signed-in operator's session; `device_id` is `NULL` until device authentication (Phase 3).
+
+## Branding and settings
+
+**Settings → Branding** (name, tagline, logo URL, primary/secondary/accent colors, kiosk welcome message) and **Settings** (legal name, website, timezone, currency, expected arrival time, structured address, phone, email, receipt identity) are saved to `organizations` / `organization_branding`, audit-logged, and restricted to owners/admins. The whole app (sidebar, kiosk, receipts) re-themes from the saved values on the next render; brand CSS variables are rendered on the server, so there is no flash of default colors. Logo **uploads** arrive with R2 — for now the logo is a site path (e.g. `/tenants/little-stars/logo.svg`) or an `https://` URL.
+
+## What is still mock (Phase 3)
+
+| Module | Phase 2 behaviour | Where |
+|---|---|---|
+| Payments, invoices, receipts | Deterministic sample data generated from the real roster; "Record payment" lives in the browser session only | `lib/mock-data/payments.ts`, `lib/store/live-data.tsx` |
+| Payment reports & "payment due" alert | Built from the same sample data | `components/reports`, `lib/data/index.ts` |
+| Guardian kiosk PIN | Any 4 digits | `lib/auth/mock-kiosk-auth.ts` |
+| Signatures, child documents, photos, logo uploads | Not stored (R2) | `lib/services/signature-storage.ts` |
+| Kiosk device authentication / offline queue | Uses the operator session; `client_event_id` is ready for offline sync | `lib/kiosk/device.ts` |
+| Messages, calendar, documents pages | Labelled placeholders | `app/(admin)/{messages,calendar,documents}` |
+| Inviting more users / organization switching / platform admin tools | Not built (memberships are created by the seed or SQL) | — |
+| Stripe, parent portal, SMS/email, PDF generation | Not started | — |
 
 ## Routes
 
-| Route | Purpose |
-|---|---|
-| `/` | Development entry point (later: tenant sign-in) |
-| `/dashboard` | Greeting, live metrics, currently at daycare, activity, quick actions, alerts, charts, staff on duty |
-| `/children` | Directory — search (child/guardian/phone), class + attendance filters, Add Child (RHF + Zod) |
-| `/children/[id]` | Profile — Overview, Guardians, Attendance, Payments, Documents, Notes |
-| `/attendance` | Daily register by date + immutable event log |
-| `/staff`, `/staff/[id]` | Directory with live duty status; profile with timesheet |
-| `/payments` | Balances, recent payments, Record Payment, printable receipt preview |
-| `/reports` | Daily attendance, attendance history, staff hours, payments · date presets · CSV export · print-to-PDF |
-| `/settings` | Organization, kiosk and receipt settings |
-| `/settings/branding` | White-label branding with live preview |
-| `/kiosk` | Full-screen tablet home |
-| `/kiosk/check-in` | Select child → confirm → guardian PIN / name → signature → success |
-| `/kiosk/check-out` | Currently In / All / By Class → pickup person + signature → success |
-| `/kiosk/staff` | PIN time clock → Clock In / Clock Out / View My Hours |
-| `/kiosk/children` | Read-only "who's here" view |
-| `/messages`, `/calendar`, `/documents` | Labelled placeholders for post-MVP modules |
+| Route | Purpose | Access |
+|---|---|---|
+| `/login` | Site-password sign-in | public |
+| `/dashboard` | Metrics, who's here, activity, quick actions, alerts, charts, staff on duty | all roles |
+| `/children`, `/children/[id]` | Directory and profile (overview, guardians, attendance, payments*, documents, notes) | all roles; editing owner/admin |
+| `/attendance` | Daily register + event log | all roles |
+| `/staff`, `/staff/[id]` | Directory, profile, timesheet; add/edit staff | all roles; editing owner/admin |
+| `/payments`, `/reports` | Mock billing; reports | owner/admin |
+| `/settings`, `/settings/branding` | Organization settings and branding | owner/admin |
+| `/kiosk`, `/kiosk/check-in`, `/kiosk/check-out`, `/kiosk/staff`, `/kiosk/children` | Front-desk tablet | all roles |
+| `/forbidden` | Signed in, role lacks access | — |
+| `/no-access` | Signed in, no active membership | — |
+| `/messages`, `/calendar`, `/documents` | Placeholders | all roles |
 
 ## Project structure
 
 ```
-app/
-  layout.tsx              root: tenant CSS vars on <html>, OrganizationProvider, DemoStoreProvider
-  page.tsx                dev launcher
-  (admin)/                admin shell (sidebar + top nav) and all admin routes
-  kiosk/                  separate full-screen kiosk shell + flows
-components/
-  ui/                     shadcn-style primitives (button, card, dialog, select, tabs, table…)
-  admin/                  AppSidebar, TopNavigation, nav config
-  dashboard/              MetricCard, ChildCard, ActivityTimeline, QuickActions, AlertCard, StaffStatusCard, charts…
-  children/ attendance/ staff/ payments/ reports/ settings/ branding/
-  kiosk/                  KioskHeader, KioskActionButton, KioskChildCard, NumericKeypad, SignaturePad,
-                          SuccessConfirmation, check-in / check-out / staff-clock state machines
-  shared/                 OrganizationProvider, OrganizationLogo, TenantBrand, ChildAvatar, StatusBadge,
-                          PageHeader, EmptyState, SearchInput, LiveClock, DemoBadge
+app/                        routes; (admin) and kiosk layouts load the tenant via TenantShell
+components/                 UI (unchanged design); dialogs call server actions
+cloudflare/d1-gateway/      the D1 gateway Worker (wrangler.jsonc, src/index.ts)
+drizzle/migrations/         generated SQL migrations (committed)
+docs/CLOUDFLARE_SETUP.md    Cloudflare + Vercel setup
 lib/
-  data/                   DATA ACCESS LAYER — the only thing pages import for data
-  mock-data/              organization, children, guardians, staff, attendance, payments, activity, seed
-  domain/                 pure derivation logic: attendance status, staff hours, balances
-  store/demo-store.tsx    in-memory session store for kiosk/payment events (mock service)
-  services/               signature storage (mock R2 upload)
-  auth/                   ⚠️ mock session + mock kiosk PIN checks (clearly marked)
-  theme/                  brand → CSS variable mapping, readable-foreground contrast helper
-  validation/             Zod schemas shared by forms (and later server actions)
-  hooks/ utils/ kiosk/
-types/domain.ts           database-ready domain types (every tenant record has organizationId)
+  auth/                     session cookie, site-password login, tenant resolution for pages/actions
+  db/                       Drizzle schema, client, gateway protocol + executor, repositories
+  server/                   tenant context, permissions, errors, mappers, services, server actions
+  data/                     cached read facade used by pages
+  validation/mutations.ts   Zod schemas for every mutation
+  domain/                   pure derivations: attendance status, staff hours, balances
+  mock-data/payments.ts     remaining mock module (billing)
+  utils/timezone.ts         UTC ↔ organization timezone
+scripts/seed/               development seed (build-seed.ts is pure and tested)
+tests/                      Vitest: tenant isolation, RBAC, attendance, staff time, children/guardians, gateway, seed
 ```
 
-## Mock-data architecture
+## Testing
 
-- `lib/mock-data/*` holds seed data only. Time-relative data (attendance, time clock, invoices) is generated **relative to today** in the tenant timezone with a seeded PRNG, so the demo always looks live and server/client renders agree.
-- `lib/data/index.ts` is the **only** data entry point for pages. Every function takes `organizationId` and is async, so swapping to D1 doesn't change call sites.
-- `lib/store/demo-store.tsx` holds attendance/time/payment events client-side for the session so kiosk actions show up on the dashboard. Nothing sensitive goes to `localStorage`.
+```bash
+npm test             # Vitest — in-memory SQLite with the real migrations
+npm run lint
+npm run typecheck
+npm run build
+npm --prefix cloudflare/d1-gateway run typecheck
+```
 
-### Event-based attendance
-
-There is no `checkedIn` flag anywhere. `AttendanceEvent { type: "CHECK_IN" | "CHECK_OUT", eventTime, guardianId, deviceId, signatureObjectKey, … }` events are immutable; `lib/domain/attendance.ts` derives each child's status, durations, daily summaries and charts. Staff hours work the same way from `StaffTimeEvent`s (`lib/domain/staff-time.ts`). Kiosk events get a client-generated UUID so retries are idempotent (ready for offline queueing). Balances are derived from invoices − payments (`lib/domain/billing.ts`).
-
-## White-label architecture
-
-- **Organization config** (`types/domain.ts → Organization`): name, slug, tagline, timezone, currency, contact info, kiosk welcome, receipt identity, `branding { logoUrl, primaryColor, secondaryColor, accentColor, success/warning/danger overrides }`.
-- **Tokens, not hex values.** `app/globals.css` defines `--brand-primary`, `--brand-secondary`, `--brand-accent`, `--brand-success`, `--brand-warning`, `--brand-danger` (+ `-foreground`) and maps them to Tailwind utilities (`bg-brand`, `text-brand-secondary`, `bg-success/10`, …) and to shadcn's `--primary` etc.
-- **Server-rendered theme:** the root layout writes the tenant's variables inline on `<html>` — no flash of default colors. `lib/theme/brand-css-vars.ts` also picks white or navy text for any brand color (WCAG contrast).
-- **`useOrganization()`** gives client components the tenant; components render `organization.name`, never a literal name. The branding page previews by scoping CSS variables to the preview container, and can apply changes app-wide for the session.
-- Neutral shell (navy ink, light canvas) stays constant so any brand palette remains coherent; status colors stay consistent for safety.
-
-## Future: Cloudflare D1 (Phase 2)
-
-- Drizzle ORM schema mirroring `types/domain.ts`: `organizations, organization_branding, users, organization_memberships, children, guardians, child_guardians, attendance_events, staff, staff_time_events, devices, invoices, payments, receipts, audit_logs`.
-- Every tenant-owned table has `organization_id` + composite indexes (`organization_id, child_id, event_time`, etc.). Money stored as integer minor units.
-- Reimplement `lib/data/*` with Drizzle queries; mutations become server actions/route handlers that re-validate with the same Zod schemas.
-- Corrections are new events + `audit_logs` rows, never in-place edits.
-
-## Future: Cloudflare R2
-
-- Private bucket; object keys `orgs/{organizationId}/signatures/{yyyy-mm-dd}/{eventId}.png`, `orgs/{id}/children/{childId}/…`, `orgs/{id}/branding/logo.*`.
-- `SignaturePad` already exports a PNG `Blob`; `lib/services/signature-storage.ts` is the seam — swap the mock for an authenticated upload route that validates type/size and stores only the key on the event.
-- Admins view signatures/documents through short-lived signed URLs. Nothing public by default.
+The suite covers: tenant isolation with a second organization (reads, updates, links, attendance, staff PINs across tenants), RBAC for each role, the attendance and time-clock state machines (double check-in/out, idempotent retries, concurrent submissions, withdrawn children, unauthorized pickups), audit rows, PIN hashing and uniqueness, safe error mapping, the gateway's request signing and statement guard, and the seed.
 
 ## Authentication
 
-The daycare app is closed by default. `proxy.ts` checks a signed httpOnly cookie on every route except `/login` and static files. Admin and kiosk layouts call `getCurrentUser()` again before rendering, so a missing or invalid session is rejected on the server.
+Unchanged from Phase 1: one site password (bcrypt hash in `AUTH_PASSWORD_HASH`), a signed httpOnly session cookie (`SESSION_SECRET`), and `proxy.ts` keeping every route except `/login` behind a session. Phase 2 adds the step after sign-in: the identity `password:usr_bootstrap` is mapped to a D1 `users` row and membership. A real multi-user identity provider can replace the password login later by producing a different `auth_provider_id`; nothing else changes.
 
-| Route | Behavior |
+## Deployment
+
+1. Cloudflare: create the D1 database, set `database_id`, set the Worker secret, deploy the Worker, apply migrations — [docs/CLOUDFLARE_SETUP.md](docs/CLOUDFLARE_SETUP.md) steps 2–6.
+2. Create your organization and owner membership (seed for dev/staging; SQL for production — step 7).
+3. Vercel: set the environment variables (step 8) and redeploy.
+
+Vercel builds never touch the database; migrations and seeds are always manual.
+
+## Troubleshooting
+
+| Symptom | Fix |
 |---|---|
-| `/` | Signed out → `/login`. Signed in → `/dashboard`. |
-| `/login` | Public. A signed-in user is sent to `/dashboard`. |
-| Everything else (`/dashboard`, `/children`, `/kiosk`, …) | Requires a session. Otherwise → `/login`. |
-
-Sign out is in the sidebar account menu. It clears the cookie and returns to `/login`.
-
-There is no database of users yet. One site password is configured with environment variables. The password is stored only as a bcrypt hash. The login screen asks for that password and nothing else. The session cookie holds a user id signed with `SESSION_SECRET` (HS256). It is `HttpOnly`, `SameSite=Lax`, and `Secure` in production, and lasts 30 days.
-
-### Local setup
-
-```bash
-copy .env.example .env.local
-```
-
-Fill in:
-
-```powershell
-node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
-npm run hash-password -- "your-password"
-```
-
-| Variable | Purpose |
-|---|---|
-| `SESSION_SECRET` | Signs the session cookie. At least 32 characters. |
-| `AUTH_PASSWORD_HASH` | bcrypt hash of the single site password, from `npm run hash-password`. In `.env.local`, escape each `$` as `\$`. In the Vercel dashboard, paste the hash exactly, with the `$` characters left as-is. |
-| `AUTH_USER_NAME` | Name shown in the sidebar. |
-| `AUTH_EMAIL` | Optional. Not used to sign in. |
-
-Restart `npm run dev` after changing `.env.local`. Local app: `http://localhost:3000`.
-
-### Vercel
-
-In the Vercel project → **Settings → Environment Variables**, add `SESSION_SECRET`, `AUTH_PASSWORD_HASH`, and `AUTH_USER_NAME` for **Production**, **Preview**, and **Development**. `AUTH_EMAIL` is optional. Use a different `SESSION_SECRET` and password in production than on your laptop. Redeploy after saving them. The site origin is the Vercel URL; nothing is hard-coded to a preview URL.
-
-Until those variables exist on Vercel, the login page loads but sign-in is refused.
-
-The platform logo belongs at `public/branding/vision-forge-logo.png`. It is shown on the login screen only. Little Stars branding inside the demo tenant is unchanged.
-
-### Later: D1 and multi-tenancy
-
-`authenticate()` and `getCurrentUser()` are the seams. Phase 2 replaces the env user with `users` + `organization_memberships` (roles `PLATFORM_ADMIN`, `DAYCARE_OWNER`, `DAYCARE_ADMIN`, `DAYCARE_STAFF`). Sessions can stay signed cookies, or move to a session id stored in D1. Kiosk tablets will get a separate device login; `/kiosk` stays behind this user session until then. Guardian and staff PINs stay out of this login and must be hashed server-side when they are built. `lib/auth/mock-kiosk-auth.ts` must not be reused.
-
-## Deployment notes
-
-- Target: Vercel (Next.js) with Cloudflare DNS; D1/R2 accessed from server code via Cloudflare bindings/HTTP API once Phase 2 begins. Secrets in environment variables only.
-- All routes currently render dynamically because seed data is relative to "now"; once real data lands, cacheable routes can opt back into caching.
-- The kiosk works well as a PWA added to an iPad/Android home screen (manifest + offline queue are Phase 2+).
+| "We couldn't load this page" | The app can't reach the gateway — check `D1_GATEWAY_URL`, that `npm run gateway:dev` is running locally, and the server log. |
+| Redirected to `/no-access` after signing in | Your identity has no active membership. Run `npm run db:seed:local -- --admin-email …` (dev) or insert the rows (production). |
+| `/forbidden` | Your role can't open that page (e.g. staff → Settings). |
+| Gateway `401` in server logs | `D1_GATEWAY_SECRET` and the Worker's `GATEWAY_SECRET` differ. |
+| `no such table` in server logs | Run the migrations for that database. |
+| Sign-in refused | `SESSION_SECRET` / `AUTH_PASSWORD_HASH` missing or malformed (escape `$` as `\$` in `.env.local` only). |

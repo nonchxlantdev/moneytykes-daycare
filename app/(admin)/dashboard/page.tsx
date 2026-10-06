@@ -7,31 +7,31 @@ import { QuickActions } from "@/components/dashboard/quick-actions";
 import { RecentActivity } from "@/components/dashboard/recent-activity";
 import { StaffWorking } from "@/components/dashboard/staff-working";
 import { TodaysAlerts } from "@/components/dashboard/todays-alerts";
-import { getDemoSession } from "@/lib/auth/mock-session";
-import { getActiveOrganization, listActivityNotes, listChildren, listStaff } from "@/lib/data";
-import { getAlertInputs } from "@/lib/data/alerts";
+import { AutoRefresh } from "@/components/shared/auto-refresh";
+import { requireTenantContext } from "@/lib/auth/tenant";
+import { getActiveChildRecords, getAlertInputs, getChildRecords, getStaffList } from "@/lib/data";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
 export default async function DashboardPage() {
-  const [session, org] = await Promise.all([getDemoSession(), getActiveOrganization()]);
-  const [roster, staff, notes, alertInputs] = await Promise.all([
-    listChildren(org.id),
-    listStaff(org.id),
-    listActivityNotes(org.id),
-    getAlertInputs(org.id),
+  const ctx = await requireTenantContext();
+  const [active, roster, staff, alertInputs] = await Promise.all([
+    getActiveChildRecords(),
+    getChildRecords(),
+    getStaffList(),
+    getAlertInputs(),
   ]);
-  const active = roster.filter((c) => c.enrollmentStatus === "ACTIVE");
 
   return (
     <div className="mx-auto flex max-w-[1600px] flex-col gap-6 animate-in fade-in-0 slide-in-from-bottom-1 duration-500">
+      <AutoRefresh />
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
         <div className="flex min-w-0 flex-col gap-6">
-          <DashboardGreeting firstName={session.user.name.split(" ")[0]} />
+          <DashboardGreeting firstName={ctx.user.name.split(" ")[0]} />
           <DashboardMetrics roster={active} staff={staff} />
           <div className="grid grid-cols-1 gap-6 2xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
             <CurrentlyAtDaycare roster={active} />
-            <RecentActivity roster={roster} staff={staff} notes={notes} />
+            <RecentActivity roster={roster} staff={staff} />
           </div>
         </div>
         <div className="flex flex-col gap-6">

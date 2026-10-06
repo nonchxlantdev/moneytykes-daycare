@@ -1,0 +1,20 @@
+{
+  "name": "daycare-d1-gateway",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Authenticated D1 gateway Worker for the daycare SaaS (Vercel → Worker → D1).",
+  "scripts": {
+    "dev": "wrangler dev --port 8787",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "migrations:list:local": "wrangler d1 migrations list DB --local",
+    "migrations:list:remote": "wrangler d1 migrations list DB --remote",
+    "migrations:apply:local": "wrangler d1 migrations apply DB --local",
+    "migrations:apply:remote": "wrangler d1 migrations apply DB --remote"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261006.1",
+    "typescript": "^5",
+    "wrangler": "^4"
+  }
+}

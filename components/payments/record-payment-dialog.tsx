@@ -4,7 +4,7 @@ import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Banknote, CircleEllipsis, CreditCard, Landmark } from "lucide-react";
 import type { PaymentMethod } from "@/types/domain";
-import type { ChildRecord } from "@/lib/data";
+import type { ChildRecord } from "@/types/domain";
 import type { ChildBalance } from "@/lib/domain/billing";
 import { DemoBadge } from "@/components/shared/demo-badge";
 import { useOrganization } from "@/components/shared/organization-provider";

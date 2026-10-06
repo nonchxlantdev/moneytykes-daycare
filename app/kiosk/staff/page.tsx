@@ -1,8 +1,6 @@
 import { StaffTimeClock } from "@/components/kiosk/staff-time-clock";
-import { getActiveOrganization, listStaff } from "@/lib/data";
 
-export default async function KioskStaffPage() {
-  const org = await getActiveOrganization();
-  const staff = await listStaff(org.id);
-  return <StaffTimeClock staff={staff.filter((s) => s.employmentStatus !== "INACTIVE")} />;
+/** Staff are identified by PIN on the server; no staff list is sent to the kiosk. */
+export default function KioskStaffPage() {
+  return <StaffTimeClock />;
 }

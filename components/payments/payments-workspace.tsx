@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { CircleAlert, Plus, Printer, ReceiptText, TrendingUp, UsersRound, Wallet } from "lucide-react";
 import type { Invoice, Payment } from "@/types/domain";
-import type { ChildRecord } from "@/lib/data";
+import type { ChildRecord } from "@/types/domain";
 import { ChildAvatar } from "@/components/shared/child-avatar";
 import { EmptyState } from "@/components/shared/empty-state";
 import { useOrganization } from "@/components/shared/organization-provider";
@@ -15,7 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { childBalances } from "@/lib/domain/billing";
-import { useDemoStore } from "@/lib/store/demo-store";
+import { useLiveData } from "@/lib/store/live-data";
 import { cn, dateKey, formatCalendarDate, formatCurrency, formatDate, fullName } from "@/lib/utils";
 import type { PaymentFormValues } from "@/lib/validation/schemas";
 import { methodLabel } from "./payment-labels";
@@ -38,7 +38,7 @@ export function PaymentsWorkspace({
   initialChildId?: string;
 }) {
   const org = useOrganization();
-  const { sessionPayments, recordPayment } = useDemoStore();
+  const { sessionPayments, recordPayment } = useLiveData();
   const [recordOpen, setRecordOpen] = useState(openRecord);
   const [recordChild, setRecordChild] = useState<string | undefined>(initialChildId);
   const [receiptId, setReceiptId] = useState<string>();

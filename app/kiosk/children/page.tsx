@@ -1,8 +1,13 @@
 import { KioskRoster } from "@/components/kiosk/kiosk-roster";
-import { getActiveOrganization, listChildren, listClassrooms } from "@/lib/data";
+import { AutoRefresh } from "@/components/shared/auto-refresh";
+import { getActiveChildRecords, getClassroomList } from "@/lib/data";
 
 export default async function KioskChildrenPage() {
-  const org = await getActiveOrganization();
-  const [roster, classrooms] = await Promise.all([listChildren(org.id), listClassrooms(org.id)]);
-  return <KioskRoster roster={roster.filter((c) => c.enrollmentStatus === "ACTIVE")} classrooms={classrooms} />;
+  const [roster, classrooms] = await Promise.all([getActiveChildRecords(), getClassroomList()]);
+  return (
+    <>
+      <AutoRefresh />
+      <KioskRoster roster={roster} classrooms={classrooms} />
+    </>
+  );
 }

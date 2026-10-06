@@ -39,7 +39,7 @@ export function StaffWorking({ staff, limit = 4 }: { staff: Staff[]; limit?: num
                   <StaffStatusCard
                     id={s.id}
                     name={fullName(s)}
-                    role={s.role}
+                    role={s.jobTitle}
                     time={d.clockIn ? formatTime(d.clockIn.eventTime, org.timezone) : undefined}
                     status={d.status}
                   />

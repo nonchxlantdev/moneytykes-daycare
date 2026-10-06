@@ -1,30 +1,22 @@
 /**
- * SIGNATURE STORAGE SERVICE (mock).
+ * SIGNATURE STORAGE — Phase 3 seam (Cloudflare R2). NOT ACTIVE IN PHASE 2.
  *
- * Phase 1: validates that a signature image exists and returns a
- * would-be private object key. The image bytes are discarded — they are
- * never written to localStorage, IndexedDB or any public location.
+ * Phase 2 behaviour: the kiosk requires a signature on screen, but the image
+ * is discarded after the event is saved and `attendance_events.signature_object_key`
+ * stays NULL. Signature images are never stored in D1, localStorage or anywhere else.
  *
- * Phase 2 (Cloudflare R2):
- *   1. Kiosk POSTs the PNG blob to a server route authenticated as the
- *      kiosk device for this organization.
- *   2. Server validates size/type, writes to a PRIVATE bucket at
+ * Phase 3 plan:
+ *   1. Kiosk (authenticated device) POSTs the PNG blob to a route handler.
+ *   2. Server validates size/type and writes to a PRIVATE R2 bucket at
  *      orgs/{organizationId}/signatures/{yyyy-mm-dd}/{eventId}.png
- *   3. Server stores only the object key on the attendance event.
+ *   3. Only the object key is stored on the attendance event.
  *   4. Admins view signatures through short-lived signed URLs.
  */
-export interface UploadSignatureInput {
-  organizationId: string;
-  eventId: string;
-  date: string; // YYYY-MM-DD
-  blob: Blob;
-}
+export const SIGNATURE_STORAGE_ENABLED = false;
 
-const MAX_SIGNATURE_BYTES = 512 * 1024;
+export const MAX_SIGNATURE_BYTES = 512 * 1024;
 
-export async function uploadSignature({ organizationId, eventId, date, blob }: UploadSignatureInput): Promise<string> {
-  if (blob.type !== "image/png") throw new Error("Signature must be a PNG image");
-  if (blob.size === 0 || blob.size > MAX_SIGNATURE_BYTES) throw new Error("Signature image is empty or too large");
-  await new Promise((r) => setTimeout(r, 400)); // simulate network
-  return `orgs/${organizationId}/signatures/${date}/${eventId}.png`;
+/** Client-side sanity check that a signature was actually drawn before submitting. */
+export function isUsableSignature(blob: Blob | null): blob is Blob {
+  return Boolean(blob && blob.type === "image/png" && blob.size > 0 && blob.size <= MAX_SIGNATURE_BYTES);
 }

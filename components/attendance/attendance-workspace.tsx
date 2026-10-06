@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { CircleCheck, Clock, DoorOpen, History, Lock, LogIn, LogOut, Pencil, Smile } from "lucide-react";
 import type { Classroom } from "@/types/domain";
-import type { ChildRecord } from "@/lib/data";
+import type { ChildRecord } from "@/types/domain";
 import { useOrganization } from "@/components/shared/organization-provider";
 import { PageHeader } from "@/components/shared/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -16,7 +16,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { attendanceDates, deriveDailyAttendance, eventsOnDate, summarize } from "@/lib/domain/attendance";
 import { useTodayKey } from "@/lib/hooks/use-attendance";
 import { useNow } from "@/lib/hooks/use-now";
-import { useDemoStore } from "@/lib/store/demo-store";
+import { useLiveData } from "@/lib/store/live-data";
 import { cn, formatCalendarDate, formatTime, fullName } from "@/lib/utils";
 import { DailyAttendanceTable, guardianNameFor } from "./daily-attendance-table";
 
@@ -24,7 +24,7 @@ export function AttendanceWorkspace({ roster, classrooms }: { roster: ChildRecor
   const org = useOrganization();
   const now = useNow();
   const today = useTodayKey();
-  const { attendanceEvents } = useDemoStore();
+  const { attendanceEvents } = useLiveData();
   const dates = useMemo(() => {
     const all = attendanceDates(attendanceEvents, org.timezone);
     return all.includes(today) ? all : [today, ...all];

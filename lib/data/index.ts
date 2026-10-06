@@ -1,117 +1,122 @@
+import "server-only";
+
 /**
- * DATA ACCESS LAYER (mock implementation).
+ * Server-side data facade for pages and layouts.
  *
- * Pages and server components fetch through these functions only —
- * never by importing lib/mock-data directly. In Phase 2 each function
- * is reimplemented against Cloudflare D1 (Drizzle) with:
- *   - the active organization resolved from the session / host
- *   - membership + role checks enforced server-side
- *   - every query scoped by organization_id
- * The signatures already take `organizationId` so call sites won't change.
+ * Every function resolves the tenant from the authenticated session
+ * (requireTenantContext) and goes through the service layer, which
+ * enforces permissions and scopes every query by organization_id.
+ * Callers can't pass an organizationId — there is no parameter for it.
+ *
+ * Wrapped in React `cache()` so a layout and page share one lookup per request.
  */
-import type {
-  AttendanceEvent,
-  Child,
-  ChildDocument,
-  ChildGuardian,
-  Classroom,
-  Guardian,
-  Invoice,
-  Organization,
-  Payment,
-  Staff,
-  StaffTimeEvent,
-} from "@/types/domain";
-import { connection } from "next/server";
-import type { ActivityNote } from "@/lib/mock-data/activity";
-import { mockChildren } from "@/lib/mock-data/children";
-import { mockChildGuardians, mockGuardians } from "@/lib/mock-data/guardians";
-import { mockClassrooms, mockOrganization } from "@/lib/mock-data/organization";
-import { getDemoSeed } from "@/lib/mock-data/seed";
-import { mockStaff } from "@/lib/mock-data/staff";
+import { cache } from "react";
+import { getDb } from "@/lib/db";
+import { requireTenantContext } from "@/lib/auth/tenant";
+import { buildMockBilling, type MockBilling } from "@/lib/mock-data/payments";
+import { listAttendanceWindow, listChildAttendanceHistory } from "@/lib/server/services/attendance";
+import { getChildProfile, listChildRecords } from "@/lib/server/services/children";
+import { getClassrooms, getOrganization } from "@/lib/server/services/organization";
+import { getStaffMember, listStaff } from "@/lib/server/services/staff";
+import { listStaffTimeWindow } from "@/lib/server/services/staff-time";
+import { can } from "@/lib/server/tenant-context";
+import { dateKey } from "@/lib/utils/format";
+import { addDays, zonedStartOfDay } from "@/lib/utils/timezone";
+import { fullName } from "@/lib/utils/people";
+import type { AlertInputs } from "@/lib/hooks/use-today-alerts";
+import type { ChildRecord, EnrollmentStatus } from "@/types/domain";
 
-export interface GuardianLink {
-  guardian: Guardian;
-  link: ChildGuardian;
-}
+export type { ChildRecord, GuardianLink } from "@/types/domain";
 
-export interface ChildRecord extends Child {
-  guardians: GuardianLink[];
-}
+/** Days of events delivered to client widgets (dashboard charts, reports up to "This Month"). */
+export const EVENT_WINDOW_DAYS = 40;
 
-/**
- * Mock seed data is relative to "now", so opt out of build-time
- * prerendering for anything time-dependent. (Real D1 queries are
- * dynamic anyway.)
- */
-async function timeRelativeSeed() {
-  await connection();
-  return getDemoSeed();
-}
+const tenant = cache(async () => ({ ctx: await requireTenantContext(), db: getDb() }));
 
-const byOrg = <T extends { organizationId: string }>(rows: T[], organizationId: string) =>
-  rows.filter((r) => r.organizationId === organizationId);
+export const getCurrentOrganization = cache(async () => {
+  const { ctx, db } = await tenant();
+  return getOrganization(db, ctx);
+});
 
-/** Resolve the active tenant. Later: from subdomain/custom domain + session. */
-export async function getActiveOrganization(): Promise<Organization> {
-  return mockOrganization;
-}
+export const getClassroomList = cache(async () => {
+  const { ctx, db } = await tenant();
+  return getClassrooms(db, ctx);
+});
 
-export async function listClassrooms(organizationId: string): Promise<Classroom[]> {
-  return byOrg(mockClassrooms, organizationId);
-}
+export const getChildRecords = cache(async (statuses?: EnrollmentStatus[]): Promise<ChildRecord[]> => {
+  const { ctx, db } = await tenant();
+  return listChildRecords(db, ctx, statuses);
+});
 
-function withGuardians(child: Child): ChildRecord {
-  const guardians = mockChildGuardians
-    .filter((l) => l.childId === child.id && l.organizationId === child.organizationId)
-    .map((link) => ({ link, guardian: mockGuardians.find((g) => g.id === link.guardianId)! }))
-    .filter((gl) => Boolean(gl.guardian));
-  return { ...child, guardians };
-}
+export const getActiveChildRecords = cache(() => getChildRecords(["ACTIVE"]));
 
-export async function listChildren(organizationId: string): Promise<ChildRecord[]> {
-  return byOrg(mockChildren, organizationId).map(withGuardians);
-}
+export const getChildRecord = cache(async (childId: string) => {
+  const { ctx, db } = await tenant();
+  return getChildProfile(db, ctx, childId);
+});
 
-export async function getChild(organizationId: string, childId: string): Promise<ChildRecord | null> {
-  const child = mockChildren.find((c) => c.id === childId && c.organizationId === organizationId);
-  return child ? withGuardians(child) : null;
-}
+export const getChildHistory = cache(async (childId: string) => {
+  const { ctx, db } = await tenant();
+  return listChildAttendanceHistory(db, ctx, childId);
+});
 
-export async function listStaff(organizationId: string): Promise<Staff[]> {
-  return byOrg(mockStaff, organizationId);
-}
+export const getStaffList = cache(async () => {
+  const { ctx, db } = await tenant();
+  return listStaff(db, ctx);
+});
 
-export async function getStaffMember(organizationId: string, staffId: string): Promise<Staff | null> {
-  return mockStaff.find((s) => s.id === staffId && s.organizationId === organizationId) ?? null;
-}
+export const getStaffById = cache(async (staffId: string) => {
+  const { ctx, db } = await tenant();
+  return getStaffMember(db, ctx, staffId);
+});
 
-export async function listAttendanceEvents(organizationId: string): Promise<AttendanceEvent[]> {
-  return byOrg((await timeRelativeSeed()).attendanceEvents, organizationId);
-}
+/** Start of the event window: local midnight N days ago in the ORGANIZATION's timezone. */
+export const getEventWindowStart = cache(async () => {
+  const org = await getCurrentOrganization();
+  return zonedStartOfDay(addDays(dateKey(new Date(), org.timezone), -EVENT_WINDOW_DAYS), org.timezone);
+});
 
-export async function listStaffTimeEvents(organizationId: string): Promise<StaffTimeEvent[]> {
-  return byOrg((await timeRelativeSeed()).staffTimeEvents, organizationId);
-}
+export const getAttendanceEvents = cache(async () => {
+  const { ctx, db } = await tenant();
+  return listAttendanceWindow(db, ctx, await getEventWindowStart());
+});
 
-export async function listInvoices(organizationId: string): Promise<Invoice[]> {
-  return byOrg((await timeRelativeSeed()).invoices, organizationId);
-}
+export const getStaffTimeEvents = cache(async () => {
+  const { ctx, db } = await tenant();
+  return listStaffTimeWindow(db, ctx, await getEventWindowStart());
+});
 
-export async function listPayments(organizationId: string): Promise<Payment[]> {
-  return byOrg((await timeRelativeSeed()).payments, organizationId);
-}
+/** ⚠️ Mock billing derived from the real roster (payments persistence is a later phase). */
+export const getMockBilling = cache(async (): Promise<MockBilling> => {
+  const [org, roster, classrooms] = await Promise.all([getCurrentOrganization(), getChildRecords(), getClassroomList()]);
+  return buildMockBilling(roster, new Map(classrooms.map((c) => [c.id, c.name])), {
+    organizationId: org.id,
+    receiptPrefix: org.receipt.receiptPrefix,
+    today: dateKey(new Date(), org.timezone),
+  });
+});
 
-export async function getNextReceiptSequence(): Promise<number> {
-  return (await timeRelativeSeed()).nextReceiptSequence;
-}
-
-export async function listChildDocuments(organizationId: string, childId: string): Promise<ChildDocument[]> {
-  return byOrg((await timeRelativeSeed()).childDocuments, organizationId).filter((d) => d.childId === childId);
-}
-
-export async function listActivityNotes(organizationId: string): Promise<ActivityNote[]> {
-  return byOrg((await timeRelativeSeed()).activityNotes, organizationId);
-}
-
-export type { ActivityNote };
+export const getAlertInputs = cache(async (): Promise<AlertInputs> => {
+  const { ctx } = await tenant();
+  const [roster, staff] = await Promise.all([getActiveChildRecords(), getStaffList()]);
+  let outstandingFamilies: number | null = null;
+  if (can(ctx, "payments:view")) {
+    const { invoices, payments } = await getMockBilling();
+    const paid = new Map<string, number>();
+    for (const p of payments) paid.set(p.childId, (paid.get(p.childId) ?? 0) + p.amount);
+    const owing = new Set<string>();
+    const invoiced = new Map<string, { total: number; guardianId: string }>();
+    for (const i of invoices) {
+      const cur = invoiced.get(i.childId) ?? { total: 0, guardianId: i.guardianId };
+      cur.total += i.amount;
+      invoiced.set(i.childId, cur);
+    }
+    for (const [childId, { total, guardianId }] of invoiced) if (total - (paid.get(childId) ?? 0) > 0) owing.add(guardianId);
+    outstandingFamilies = owing.size;
+  }
+  return {
+    children: roster.map(({ id, firstName, lastName }) => ({ id, firstName, lastName })),
+    staffOnLeave: staff.filter((s) => s.employmentStatus === "ON_LEAVE").map((s) => ({ name: fullName(s), reason: s.statusNote ?? "Leave" })),
+    outstandingFamilies,
+  };
+});

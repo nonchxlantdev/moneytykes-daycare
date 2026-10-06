@@ -2,14 +2,21 @@ import type { CSSProperties } from "react";
 import { Clock, LayoutDashboard, LogIn, LogOut, Smile, UsersRound } from "lucide-react";
 import { OrganizationLogo } from "@/components/shared/organization-logo";
 import { brandCssVars } from "@/lib/theme/brand-css-vars";
-import type { BrandingFormValues } from "@/lib/validation/schemas";
+import type { UpdateBrandingInput } from "@/lib/validation/mutations";
 
 /**
  * Live preview. Brand tokens are scoped to this container via inline
  * CSS variables, so editing doesn't repaint the whole app until the
  * admin chooses to apply.
  */
-export function BrandingPreview({ values }: { values: BrandingFormValues }) {
+export function BrandingPreview({
+  values,
+  contact,
+}: {
+  values: UpdateBrandingInput;
+  /** Contact details are edited on the Settings page; shown here for the receipt preview. */
+  contact: { address: string; phone: string; email: string };
+}) {
   const valid = (c: string) => /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c);
   const vars = brandCssVars({
     primaryColor: valid(values.primaryColor) ? values.primaryColor : "#2f6bea",
@@ -73,7 +80,7 @@ export function BrandingPreview({ values }: { values: BrandingFormValues }) {
           <OrganizationLogo name={name} logoUrl={values.logoUrl || undefined} size={24} />
           <span className="text-xs font-extrabold text-ink">{name}</span>
         </div>
-        <p className="text-center text-lg font-extrabold text-ink">Welcome!</p>
+        <p className="text-center text-lg font-extrabold text-ink">{values.kioskWelcomeMessage || "Welcome!"}</p>
         <div className="mt-3 grid grid-cols-3 gap-2">
           {[
             { l: "Check In", i: LogIn, c: "bg-success text-success-foreground" },
@@ -94,9 +101,9 @@ export function BrandingPreview({ values }: { values: BrandingFormValues }) {
           <OrganizationLogo name={name} logoUrl={values.logoUrl || undefined} size={32} />
           <div className="min-w-0 text-[11px]">
             <p className="font-extrabold text-ink">{name}</p>
-            <p className="truncate text-ink-muted">{values.address}</p>
+            <p className="truncate text-ink-muted">{contact.address}</p>
             <p className="truncate text-ink-muted">
-              {values.phone} · {values.email}
+              {[contact.phone, contact.email].filter(Boolean).join(" · ")}
             </p>
           </div>
           <span className="ml-auto font-mono text-[11px] font-bold text-ink">RECEIPT</span>

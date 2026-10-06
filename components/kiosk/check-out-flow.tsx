@@ -5,16 +5,15 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence } from "motion/react";
 import { ArrowRight, House, LogIn, LoaderCircle, RotateCcw, ShieldCheck } from "lucide-react";
-import type { Classroom } from "@/types/domain";
-import type { ChildRecord } from "@/lib/data";
+import type { ChildRecord, Classroom } from "@/types/domain";
 import { ChildAvatar } from "@/components/shared/child-avatar";
 import { useOrganization } from "@/components/shared/organization-provider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useChildDays } from "@/lib/hooks/use-attendance";
-import { DEMO_KIOSK_DEVICE_ID, newEventId } from "@/lib/kiosk/device";
-import { uploadSignature } from "@/lib/services/signature-storage";
-import { useDemoStore } from "@/lib/store/demo-store";
-import { dateKey, formatDuration, formatTime, fullName } from "@/lib/utils";
+import { newClientEventId } from "@/lib/kiosk/device";
+import { checkOutChildAction } from "@/lib/server/actions";
+import { isUsableSignature } from "@/lib/services/signature-storage";
+import { formatDuration, formatTime, fullName } from "@/lib/utils";
 import { KioskChildPicker } from "./kiosk-child-picker";
 import { KioskBackButton, KioskButton, KioskStep, KioskTitle } from "./kiosk-screen";
 import { SignaturePad, type SignaturePadHandle } from "./signature-pad";
@@ -36,7 +35,7 @@ export function CheckOutFlow({
 }) {
   const org = useOrganization();
   const router = useRouter();
-  const { recordAttendanceEvent } = useDemoStore();
+  const clientEventId = useRef<string | null>(null);
   const { byChild, hasClock } = useChildDays(roster);
   const [state, setState] = useState<State>(() =>
     initialChildId && roster.some((c) => c.id === initialChildId) ? { step: "confirm", childId: initialChildId } : { step: "select" },
@@ -55,6 +54,7 @@ export function CheckOutFlow({
   const goHome = useCallback(() => router.push("/kiosk"), [router]);
 
   const select = (c: ChildRecord) => {
+    clientEventId.current = null;
     setGuardianId(primaryPickupOf(c));
     setHasInk(false);
     setError(undefined);
@@ -67,25 +67,25 @@ export function CheckOutFlow({
     setSubmitting(true);
     setError(undefined);
     try {
-      const blob = await padRef.current.toBlob();
-      if (!blob) throw new Error("Please sign before confirming.");
-      const id = newEventId();
-      const eventTime = new Date().toISOString();
-      const signatureObjectKey = await uploadSignature({ organizationId: org.id, eventId: id, date: dateKey(eventTime, org.timezone), blob });
-      recordAttendanceEvent({
-        id,
-        organizationId: org.id,
-        childId: child.id,
-        guardianId,
-        type: "CHECK_OUT",
-        eventTime,
-        deviceId: DEMO_KIOSK_DEVICE_ID,
-        signatureObjectKey,
-      });
+      if (!isUsableSignature(await padRef.current.toBlob())) {
+        setError("Please sign before confirming.");
+        return;
+      }
+      // Reused if this submission is retried, so the server can de-duplicate.
+      clientEventId.current ??= newClientEventId();
+      const result = await checkOutChildAction({ childId: child.id, guardianId, clientEventId: clientEventId.current });
+      if (!result.ok) {
+        setError(result.error.message);
+        return;
+      }
+      // Success screen only after the server confirmed persistence.
+      clientEventId.current = null;
+      const eventTime = result.data.event.eventTime;
       const durationMs = day?.checkIn ? new Date(eventTime).getTime() - new Date(day.checkIn.eventTime).getTime() : undefined;
+      router.refresh();
       setState({ step: "done", childId: child.id, eventTime, durationMs });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong. Please try again.");
+    } catch {
+      setError("We couldn't reach the server. Check the connection and try again.");
     } finally {
       setSubmitting(false);
     }

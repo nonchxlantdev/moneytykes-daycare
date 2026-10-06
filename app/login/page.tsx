@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { LoginScreen } from "@/components/auth/login-screen";
-import { getOptionalUser } from "@/lib/auth/credentials";
+import { getOptionalIdentity } from "@/lib/auth/credentials";
 
 export const metadata: Metadata = {
   title: { absolute: "Enter · Vision Forge" },
@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 };
 
 export default async function LoginPage() {
-  const user = await getOptionalUser();
+  const user = await getOptionalIdentity();
   if (user) redirect("/dashboard");
   return <LoginScreen />;
 }

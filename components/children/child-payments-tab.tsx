@@ -3,22 +3,23 @@
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import type { Invoice, Payment } from "@/types/domain";
+import { DemoBadge } from "@/components/shared/demo-badge";
 import { useOrganization } from "@/components/shared/organization-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { childBalances } from "@/lib/domain/billing";
-import { useDemoStore } from "@/lib/store/demo-store";
+import { useLiveData } from "@/lib/store/live-data";
 import { formatCalendarDate, formatCurrency, formatDate } from "@/lib/utils";
 import { methodLabel } from "@/components/payments/payment-labels";
 
 const statusTone = { PAID: "success", OPEN: "warning", OVERDUE: "danger", VOID: "neutral" } as const;
 
-export function ChildPaymentsTab({ invoices, payments: seeded }: { invoices: Invoice[]; payments: Payment[] }) {
+/** Billing is still mock data in Phase 2 (see README). */
+export function ChildPaymentsTab({ childId, invoices, payments: seeded }: { childId: string; invoices: Invoice[]; payments: Payment[] }) {
   const org = useOrganization();
-  const { sessionPayments } = useDemoStore();
-  const childId = invoices[0]?.childId;
+  const { sessionPayments } = useLiveData();
   const payments = [...sessionPayments.filter((p) => p.childId === childId), ...seeded];
   const balance = childBalances(invoices, payments)[0];
 
@@ -27,6 +28,7 @@ export function ChildPaymentsTab({ invoices, payments: seeded }: { invoices: Inv
       <Card>
         <CardHeader>
           <CardTitle className="text-base sm:text-base">Balance</CardTitle>
+          <DemoBadge>Sample data</DemoBadge>
         </CardHeader>
         <CardContent>
           <p className="text-3xl font-extrabold text-ink tabular">{formatCurrency(balance?.outstanding ?? 0, org.currency)}</p>
@@ -36,7 +38,7 @@ export function ChildPaymentsTab({ invoices, payments: seeded }: { invoices: Inv
               : "All paid up"}
           </p>
           <Button asChild className="mt-4 w-full">
-            <Link href={`/payments?record=1&child=${childId ?? ""}`}>
+            <Link href={`/payments?record=1&child=${childId}`}>
               <Plus /> Record payment
             </Link>
           </Button>

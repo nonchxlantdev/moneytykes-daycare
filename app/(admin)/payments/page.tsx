@@ -1,24 +1,20 @@
 import type { Metadata } from "next";
 import { PaymentsWorkspace } from "@/components/payments/payments-workspace";
-import { getActiveOrganization, getNextReceiptSequence, listChildren, listInvoices, listPayments } from "@/lib/data";
+import { requirePagePermission } from "@/lib/auth/tenant";
+import { getChildRecords, getMockBilling } from "@/lib/data";
 
 export const metadata: Metadata = { title: "Payments" };
 
 export default async function PaymentsPage({ searchParams }: PageProps<"/payments">) {
+  await requirePagePermission("payments:view");
   const { record, child } = await searchParams;
-  const org = await getActiveOrganization();
-  const [roster, invoices, payments, nextReceipt] = await Promise.all([
-    listChildren(org.id),
-    listInvoices(org.id),
-    listPayments(org.id),
-    getNextReceiptSequence(),
-  ]);
+  const [roster, billing] = await Promise.all([getChildRecords(), getMockBilling()]);
   return (
     <PaymentsWorkspace
       roster={roster}
-      invoices={invoices}
-      payments={payments}
-      nextReceiptSequence={nextReceipt}
+      invoices={billing.invoices}
+      payments={billing.payments}
+      nextReceiptSequence={billing.nextReceiptSequence}
       openRecord={record === "1"}
       initialChildId={typeof child === "string" ? child : undefined}
     />

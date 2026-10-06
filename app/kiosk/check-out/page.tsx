@@ -1,15 +1,9 @@
 import { CheckOutFlow } from "@/components/kiosk/check-out-flow";
-import { getActiveOrganization, listChildren, listClassrooms } from "@/lib/data";
+import { getChildRecords, getClassroomList } from "@/lib/data";
 
+/** All children (not just ACTIVE) so a child withdrawn mid-day can still be signed out. */
 export default async function KioskCheckOutPage({ searchParams }: PageProps<"/kiosk/check-out">) {
   const { child } = await searchParams;
-  const org = await getActiveOrganization();
-  const [roster, classrooms] = await Promise.all([listChildren(org.id), listClassrooms(org.id)]);
-  return (
-    <CheckOutFlow
-      roster={roster.filter((c) => c.enrollmentStatus === "ACTIVE")}
-      classrooms={classrooms}
-      initialChildId={typeof child === "string" ? child : undefined}
-    />
-  );
+  const [roster, classrooms] = await Promise.all([getChildRecords(), getClassroomList()]);
+  return <CheckOutFlow roster={roster} classrooms={classrooms} initialChildId={typeof child === "string" ? child : undefined} />;
 }

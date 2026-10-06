@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { ChevronRight, Search } from "lucide-react";
-import type { GuardianLink } from "@/lib/data";
+import type { GuardianLink } from "@/types/domain";
 import { PersonAvatar } from "@/components/shared/child-avatar";
 import { mockVerifyGuardianPin } from "@/lib/auth/mock-kiosk-auth";
 import { fullName } from "@/lib/utils";
@@ -10,7 +10,7 @@ import { NumericKeypad } from "./numeric-keypad";
 
 /**
  * Step: identify the adult at the kiosk by PIN or by choosing their
- * name from the child's authorized list. ⚠️ Demo verification only.
+ * name from the child's authorized list. ⚠️ Simplified: guardian PINs are not verified in Phase 2.
  */
 export function GuardianVerification({
   guardians,
@@ -34,8 +34,14 @@ export function GuardianVerification({
       setPin("");
       return;
     }
-    // Demo: a valid-looking PIN resolves to the primary guardian.
-    onVerified(guardians.find((g) => g.link.isPrimary) ?? guardians[0]);
+    // Simplified (Phase 2): a valid-looking PIN resolves to the primary guardian.
+    const match = guardians.find((g) => g.link.isPrimary) ?? guardians[0];
+    if (!match) {
+      setError("No guardian is on file for this child. Please see the front desk.");
+      setPin("");
+      return;
+    }
+    onVerified(match);
   };
 
   return (

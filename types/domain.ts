@@ -1,11 +1,12 @@
 /**
- * Database-ready domain types.
+ * Domain view models used by the UI.
  *
- * These mirror the future Cloudflare D1 schema (via Drizzle). Every
- * tenant-owned record carries `organizationId`, which becomes the
- * `organization_id` column and the tenant boundary for authorization.
- *
- * Timestamps are ISO-8601 strings (UTC offset included).
+ * The authoritative schema lives in lib/db/schema (Drizzle → Cloudflare D1).
+ * Server-side mappers (lib/server/mappers.ts) convert database rows into
+ * these serialisable shapes before they cross into client components:
+ *   - instants become ISO-8601 UTC strings (formatted in the org timezone by the UI)
+ *   - calendar dates stay `YYYY-MM-DD`
+ *   - sensitive fields are only present when the viewer is allowed to see them
  */
 
 export type ID = string;
@@ -17,7 +18,7 @@ export type ISODate = string; // YYYY-MM-DD
 /* ------------------------------------------------------------------ */
 
 export interface OrganizationBranding {
-  logoUrl?: string; // later: signed URL resolved from an R2 object key
+  logoUrl?: string; // Phase 3: signed URL resolved from an R2 object key
   primaryColor: string;
   secondaryColor: string;
   accentColor: string;
@@ -33,15 +34,27 @@ export interface ReceiptIdentity {
   receiptPrefix: string;
 }
 
-export interface Organization {
+export type OrganizationStatus = "ACTIVE" | "TRIAL" | "SUSPENDED" | "INACTIVE";
+
+export interface PostalAddress {
+  addressLine1?: string;
+  addressLine2?: string;
+  city?: string;
+  stateRegion?: string;
+  postalCode?: string;
+  country?: string;
+}
+
+export interface Organization extends PostalAddress {
   id: ID;
   name: string;
   legalName?: string;
   slug: string;
   tagline: string;
+  status: OrganizationStatus;
   timezone: string;
   currency: string;
-  locale: string;
+  /** Single-line formatted address for display (derived from the structured fields). */
   address: string;
   phone: string;
   email: string;
@@ -51,10 +64,10 @@ export interface Organization {
   receipt: ReceiptIdentity;
   /** Expected drop-off cut-off, used for "not checked in" alerts. */
   expectedArrivalBy: string; // "HH:mm"
-  plan: "starter" | "professional" | "premium";
 }
 
-export type OrganizationRole = "OWNER" | "ADMIN" | "STAFF";
+/** Tenant roles (organization_memberships.role). */
+export type MembershipRole = "PLATFORM_ADMIN" | "DAYCARE_OWNER" | "DAYCARE_ADMIN" | "DAYCARE_STAFF";
 
 export interface User {
   id: ID;
@@ -63,18 +76,11 @@ export interface User {
   avatarUrl?: string;
 }
 
-export interface OrganizationMembership {
-  id: ID;
-  organizationId: ID;
-  userId: ID;
-  role: OrganizationRole;
-}
-
 /* ------------------------------------------------------------------ */
 /* Children & guardians                                                */
 /* ------------------------------------------------------------------ */
 
-export type ClassroomId = "infants" | "toddlers" | "preschool" | "pre-k";
+export type ClassroomId = string;
 
 export interface Classroom {
   id: ClassroomId;
@@ -83,7 +89,7 @@ export interface Classroom {
   ageRange: string;
 }
 
-export type EnrollmentStatus = "ACTIVE" | "WAITLIST" | "WITHDRAWN";
+export type EnrollmentStatus = "ACTIVE" | "INACTIVE" | "WAITLIST" | "WITHDRAWN";
 
 export interface Child {
   id: ID;
@@ -92,11 +98,14 @@ export interface Child {
   lastName: string;
   preferredName?: string;
   dateOfBirth: ISODate;
-  classroomId: ClassroomId;
+  classroomId?: ClassroomId;
   enrollmentStatus: EnrollmentStatus;
-  enrolledOn: ISODate;
-  photoUrl?: string; // later: R2 object key → signed URL
-  allergies: string[];
+  enrolledOn?: ISODate;
+  photoUrl?: string; // Phase 3: R2 object key → signed URL
+  /** Safe operational flag, included in lists so staff see allergy badges. */
+  hasAllergyAlert: boolean;
+  /** Profile-only, permission-gated fields (undefined in list views). */
+  allergies?: string[];
   medicalNotes?: string;
   notes?: string;
 }
@@ -118,9 +127,10 @@ export interface Guardian {
   firstName: string;
   lastName: string;
   phone: string;
+  /** Contact details beyond phone are only included where needed (profile, guardian editor). */
   email?: string;
-  /** Production: bcrypt/argon2 hash of a kiosk PIN. Never plaintext. */
-  pinHash?: string;
+  alternatePhone?: string;
+  address?: string;
 }
 
 /** child_guardians join table. */
@@ -129,10 +139,20 @@ export interface ChildGuardian {
   organizationId: ID;
   childId: ID;
   guardianId: ID;
-  relationship: GuardianRelationship;
+  relationship: string;
   isPrimary: boolean;
   canPickUp: boolean;
   isEmergencyContact: boolean;
+}
+
+/** A child with its guardian relationships (list views include name/phone only). */
+export interface GuardianLink {
+  guardian: Guardian;
+  link: ChildGuardian;
+}
+
+export interface ChildRecord extends Child {
+  guardians: GuardianLink[];
 }
 
 /* ------------------------------------------------------------------ */
@@ -142,14 +162,14 @@ export interface ChildGuardian {
 export type AttendanceEventType = "CHECK_IN" | "CHECK_OUT";
 
 export interface AttendanceEvent {
-  id: ID; // client-generated UUID → idempotent retries / offline sync
+  id: ID;
   organizationId: ID;
   childId: ID;
   guardianId?: ID;
   type: AttendanceEventType;
   eventTime: ISODateTime;
   deviceId?: ID;
-  /** Private R2 object key — never a public URL. */
+  /** Private R2 object key (Phase 3) — never a public URL or image data. */
   signatureObjectKey?: string;
   notes?: string;
 }
@@ -160,24 +180,26 @@ export type ChildAttendanceStatus = "IN" | "OUT" | "NOT_ARRIVED";
 /* Staff                                                               */
 /* ------------------------------------------------------------------ */
 
-export type StaffEmploymentStatus = "ACTIVE" | "ON_LEAVE" | "INACTIVE";
+export type StaffEmploymentStatus = "ACTIVE" | "INACTIVE" | "ON_LEAVE" | "TERMINATED";
 
 export interface Staff {
   id: ID;
   organizationId: ID;
   userId?: ID;
+  employeeNumber?: string;
   firstName: string;
   lastName: string;
-  role: string;
+  jobTitle: string;
   classroomId?: ClassroomId;
-  phone: string;
-  email: string;
-  hiredOn: ISODate;
+  phone?: string;
+  email?: string;
+  hiredOn?: ISODate;
   employmentStatus: StaffEmploymentStatus;
-  leaveReason?: string;
+  /** e.g. "Sick Leave". */
+  statusNote?: string;
   photoUrl?: string;
-  /** Production: hashed PIN only. */
-  pinHash?: string;
+  /** Whether a time-clock PIN is configured. The hash itself never leaves the server. */
+  hasPin: boolean;
 }
 
 export type StaffTimeEventType = "CLOCK_IN" | "CLOCK_OUT";
@@ -194,19 +216,7 @@ export interface StaffTimeEvent {
 export type StaffDutyStatus = "ON_DUTY" | "OFF_DUTY" | "ON_LEAVE";
 
 /* ------------------------------------------------------------------ */
-/* Devices                                                             */
-/* ------------------------------------------------------------------ */
-
-export interface Device {
-  id: ID;
-  organizationId: ID;
-  name: string;
-  kind: "KIOSK" | "TIME_CLOCK";
-  lastSeenAt?: ISODateTime;
-}
-
-/* ------------------------------------------------------------------ */
-/* Billing                                                             */
+/* Billing (still mock data in Phase 2 — see README)                   */
 /* ------------------------------------------------------------------ */
 
 export type InvoiceStatus = "OPEN" | "PAID" | "OVERDUE" | "VOID";
@@ -218,7 +228,7 @@ export interface Invoice {
   guardianId: ID;
   number: string;
   description: string;
-  amount: number; // minor units avoided for readability in mock; use integer cents in DB
+  amount: number;
   issuedOn: ISODate;
   dueOn: ISODate;
   status: InvoiceStatus;
@@ -238,44 +248,4 @@ export interface Payment {
   receivedAt: ISODateTime;
   recordedByUserId: ID;
   receiptNumber: string;
-}
-
-export interface Receipt {
-  id: ID;
-  organizationId: ID;
-  paymentId: ID;
-  number: string;
-  issuedAt: ISODateTime;
-  objectKey?: string; // R2 PDF
-}
-
-/* ------------------------------------------------------------------ */
-/* Audit                                                               */
-/* ------------------------------------------------------------------ */
-
-export interface AuditLog {
-  id: ID;
-  organizationId: ID;
-  actorUserId?: ID;
-  actorDeviceId?: ID;
-  action: string;
-  entityType: string;
-  entityId: ID;
-  reason?: string;
-  createdAt: ISODateTime;
-}
-
-/* ------------------------------------------------------------------ */
-/* Documents (child file metadata)                                     */
-/* ------------------------------------------------------------------ */
-
-export interface ChildDocument {
-  id: ID;
-  organizationId: ID;
-  childId: ID;
-  name: string;
-  kind: "ENROLLMENT" | "MEDICAL" | "CONSENT" | "OTHER";
-  uploadedAt: ISODateTime;
-  objectKey: string;
-  expiresOn?: ISODate;
 }

@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { useTodayAlerts, type AlertInputs } from "@/lib/hooks/use-today-alerts";
-import { SidebarFooter, SidebarNav, type SidebarUser } from "./app-sidebar";
+import { SidebarFooter, SidebarNav } from "./app-sidebar";
 
 const toneIcon = { danger: CircleAlert, warning: Wallet, info: UserMinus } as const;
 const toneClass = {
@@ -27,7 +27,7 @@ const toneClass = {
   info: "bg-primary/10 text-primary",
 } as const;
 
-export function TopNavigation({ user, alertInputs }: { user: SidebarUser; alertInputs: AlertInputs }) {
+export function TopNavigation({ alertInputs }: { alertInputs: AlertInputs }) {
   const notifications = useTodayAlerts(alertInputs);
   const router = useRouter();
   const org = useOrganization();
@@ -58,7 +58,7 @@ export function TopNavigation({ user, alertInputs }: { user: SidebarUser; alertI
               <SidebarNav onNavigate={() => setMenuOpen(false)} />
             </div>
             <div className="mt-4">
-              <SidebarFooter user={user} />
+              <SidebarFooter />
             </div>
           </SheetContent>
         </Sheet>

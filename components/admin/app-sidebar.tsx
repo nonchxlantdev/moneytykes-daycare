@@ -5,19 +5,16 @@ import { usePathname } from "next/navigation";
 import { LifeBuoy, Tablet } from "lucide-react";
 import { AccountMenu } from "./account-menu";
 import { TenantBrand } from "@/components/shared/tenant-brand";
+import { useViewer } from "@/components/shared/viewer-provider";
 import { cn } from "@/lib/utils";
 import { primaryNav } from "./nav-items";
 
-export interface SidebarUser {
-  name: string;
-  roleLabel: string;
-}
-
 export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
+  const { permissions } = useViewer();
   return (
     <nav aria-label="Main" className="flex flex-col gap-1">
-      {primaryNav.map((item) => {
+      {primaryNav.filter((item) => !item.permission || permissions.includes(item.permission)).map((item) => {
         const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
         const Icon = item.icon;
         return (
@@ -47,7 +44,8 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
-export function SidebarFooter({ user }: { user: SidebarUser }) {
+export function SidebarFooter() {
+  const viewer = useViewer();
   return (
     <div className="flex flex-col gap-3">
       <Link
@@ -75,14 +73,14 @@ export function SidebarFooter({ user }: { user: SidebarUser }) {
         </a>
       </div>
       <div className="border-t border-line px-1 pt-4">
-        <AccountMenu user={user} />
+        <AccountMenu user={{ name: viewer.name, roleLabel: viewer.roleLabel }} />
       </div>
     </div>
   );
 }
 
 /** Desktop sidebar (≥ lg). Collapsing is planned; layout already isolates width. */
-export function AppSidebar({ user }: { user: SidebarUser }) {
+export function AppSidebar() {
   return (
     <aside className="no-print sticky top-0 hidden h-dvh w-[264px] shrink-0 flex-col border-r border-line bg-surface px-4 py-6 lg:flex">
       <Link href="/dashboard" className="mb-8 px-2" aria-label="Go to dashboard">
@@ -92,7 +90,7 @@ export function AppSidebar({ user }: { user: SidebarUser }) {
         <SidebarNav />
       </div>
       <div className="mt-6">
-        <SidebarFooter user={user} />
+        <SidebarFooter />
       </div>
     </aside>
   );

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Smile } from "lucide-react";
-import type { ChildRecord } from "@/lib/data";
+import type { ChildRecord } from "@/types/domain";
 import { EmptyState } from "@/components/shared/empty-state";
 import { useOrganization } from "@/components/shared/organization-provider";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";

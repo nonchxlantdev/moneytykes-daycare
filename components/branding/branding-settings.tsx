@@ -1,19 +1,23 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useForm, useWatch, type UseFormRegisterReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { CircleCheck, ImageUp, RotateCcw, Sparkles, Trash2 } from "lucide-react";
-import { DemoBadge } from "@/components/shared/demo-badge";
+import { CircleCheck, LoaderCircle, Sparkles, Tablet, Trash2 } from "lucide-react";
+import { FormAlert } from "@/components/shared/form-alert";
 import { OrganizationLogo } from "@/components/shared/organization-logo";
-import { useOrganizationContext } from "@/components/shared/organization-provider";
+import { useOrganization } from "@/components/shared/organization-provider";
 import { PageHeader } from "@/components/shared/page-header";
 import { SettingsNav } from "@/components/settings/settings-nav";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { FieldError, Input, Label } from "@/components/ui/input";
 import { readableForeground } from "@/lib/theme/brand-css-vars";
-import { brandingFormSchema, type BrandingFormValues } from "@/lib/validation/schemas";
+import { applyServerErrors, callAction } from "@/lib/client/server-form";
+import { updateBrandingAction } from "@/lib/server/actions";
+import { updateBrandingSchema, type UpdateBrandingInput } from "@/lib/validation/mutations";
+import type { Organization } from "@/types/domain";
 import { BrandingPreview } from "./branding-preview";
 
 /** Example palettes to demonstrate white-labelling (not tenants). */
@@ -46,64 +50,44 @@ function ColorField({ id, label, value, registration, error }: { id: string; lab
   );
 }
 
-export function BrandingSettings() {
-  const { organization: org, baseOrganization, applyOrganizationPreview, resetOrganization, isPreviewing } = useOrganizationContext();
-  const [applied, setApplied] = useState(false);
-  const [logoError, setLogoError] = useState<string>();
-  const objectUrl = useRef<string | null>(null);
+const FIELDS = ["name", "tagline", "logoUrl", "primaryColor", "secondaryColor", "accentColor", "kioskWelcomeMessage"] as const;
 
-  const toValues = (o: typeof org): BrandingFormValues => ({
+function toValues(o: Organization): UpdateBrandingInput {
+  return {
     name: o.name,
     tagline: o.tagline,
     logoUrl: o.branding.logoUrl ?? "",
     primaryColor: o.branding.primaryColor,
     secondaryColor: o.branding.secondaryColor,
     accentColor: o.branding.accentColor,
-    address: o.address,
-    phone: o.phone,
-    email: o.email,
-  });
+    kioskWelcomeMessage: o.kioskWelcomeMessage,
+  };
+}
 
+/** Branding — persisted to D1 (organizations + organization_branding), owner/admin only. */
+export function BrandingSettings() {
+  const org = useOrganization();
+  const router = useRouter();
+  const [saved, setSaved] = useState(false);
+  const [formError, setFormError] = useState<string>();
   const {
     register,
     control,
     handleSubmit,
     setValue,
+    setError,
     reset,
-    formState: { errors, isDirty },
-  } = useForm<BrandingFormValues>({ resolver: zodResolver(brandingFormSchema), defaultValues: toValues(org) });
-  const values = useWatch({ control }) as BrandingFormValues;
+    formState: { errors, isDirty, isSubmitting },
+  } = useForm<UpdateBrandingInput>({ resolver: zodResolver(updateBrandingSchema), defaultValues: toValues(org) });
+  const values = useWatch({ control }) as UpdateBrandingInput;
 
-  // Release any local logo preview URL on unmount.
-  useEffect(() => () => {
-    if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
-  }, []);
-
-  const onLogo = (file?: File) => {
-    if (!file) return;
-    if (!/^image\/(png|jpeg|svg\+xml|webp)$/.test(file.type) || file.size > 2 * 1024 * 1024) {
-      setLogoError("Please choose a PNG, JPG, SVG or WebP image under 2 MB.");
-      return;
-    }
-    setLogoError(undefined);
-    if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
-    // Phase 2: upload to R2 (organization-scoped key) and store the object key.
-    objectUrl.current = URL.createObjectURL(file);
-    setValue("logoUrl", objectUrl.current, { shouldDirty: true });
-  };
-
-  const onApply = (v: BrandingFormValues) => {
-    applyOrganizationPreview({
-      ...org,
-      name: v.name,
-      tagline: v.tagline,
-      address: v.address,
-      phone: v.phone,
-      email: v.email,
-      branding: { ...org.branding, logoUrl: v.logoUrl || undefined, primaryColor: v.primaryColor, secondaryColor: v.secondaryColor, accentColor: v.accentColor },
-    });
-    reset(v);
-    setApplied(true);
+  const onSave = async (v: UpdateBrandingInput) => {
+    setFormError(undefined);
+    const result = await callAction(() => updateBrandingAction(v));
+    if (!result.ok) return setFormError(applyServerErrors(result, setError, FIELDS));
+    reset(toValues(result.data));
+    setSaved(true);
+    router.refresh();
   };
 
   return (
@@ -114,7 +98,7 @@ export function BrandingSettings() {
         actions={<SettingsNav />}
       />
 
-      <form onSubmit={handleSubmit(onApply)} noValidate className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_440px]">
+      <form onSubmit={handleSubmit(onSave)} onChange={() => setSaved(false)} noValidate className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_440px]">
         <div className="flex flex-col gap-6">
           <Card>
             <CardHeader className="flex-col items-start">
@@ -122,25 +106,22 @@ export function BrandingSettings() {
               <CardDescription>Name, tagline and logo shown in the header, kiosk and receipts.</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-5">
-              <div className="flex flex-wrap items-center gap-4 rounded-2xl border border-dashed border-line-strong p-4">
+              <div className="flex flex-wrap items-start gap-4 rounded-2xl border border-dashed border-line-strong p-4">
                 <OrganizationLogo name={values.name || "Logo"} logoUrl={values.logoUrl || undefined} size={64} />
-                <div className="flex-1">
-                  <p className="text-sm font-semibold text-ink">Logo</p>
-                  <p className="text-xs text-ink-muted">Square PNG, SVG or WebP, at least 256×256. Without a logo we show a monogram.</p>
-                  <FieldError message={logoError} />
-                </div>
-                <div className="flex gap-2">
-                  <Button type="button" variant="outline" size="sm" asChild>
-                    <label className="cursor-pointer">
-                      <ImageUp /> Upload
-                      <input type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" className="sr-only" onChange={(e) => onLogo(e.target.files?.[0])} />
-                    </label>
-                  </Button>
-                  {values.logoUrl && (
-                    <Button type="button" variant="ghost" size="sm" onClick={() => setValue("logoUrl", "", { shouldDirty: true })}>
-                      <Trash2 /> Remove
-                    </Button>
-                  )}
+                <div className="flex min-w-60 flex-1 flex-col gap-1.5">
+                  <Label htmlFor="logoUrl">Logo URL</Label>
+                  <div className="flex gap-2">
+                    <Input id="logoUrl" placeholder="/tenants/my-daycare/logo.svg or https://…" aria-invalid={!!errors.logoUrl} {...register("logoUrl")} />
+                    {values.logoUrl && (
+                      <Button type="button" variant="ghost" size="icon" aria-label="Remove logo" onClick={() => setValue("logoUrl", "", { shouldDirty: true })}>
+                        <Trash2 />
+                      </Button>
+                    )}
+                  </div>
+                  <FieldError message={errors.logoUrl?.message} />
+                  <p className="text-xs text-ink-muted">
+                    A site path or https URL to a square PNG, SVG or WebP. Logo uploads arrive with file storage in a later phase. Without a logo we show a monogram.
+                  </p>
                 </div>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
@@ -198,63 +179,39 @@ export function BrandingSettings() {
 
           <Card>
             <CardHeader className="flex-col items-start">
-              <CardTitle>Contact details</CardTitle>
-              <CardDescription>Printed on receipts and shown to families.</CardDescription>
+              <CardTitle className="flex items-center gap-2">
+                <Tablet className="size-5 text-primary" aria-hidden="true" /> Kiosk
+              </CardTitle>
+              <CardDescription>The greeting families see on the front-desk tablet.</CardDescription>
             </CardHeader>
-            <CardContent className="grid gap-4 sm:grid-cols-2">
-              <div className="flex flex-col gap-1.5 sm:col-span-2">
-                <Label htmlFor="address">Address</Label>
-                <Input id="address" {...register("address")} />
-                <FieldError message={errors.address?.message} />
-              </div>
+            <CardContent>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="phone">Phone</Label>
-                <Input id="phone" type="tel" aria-invalid={!!errors.phone} {...register("phone")} />
-                <FieldError message={errors.phone?.message} />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="email">Email</Label>
-                <Input id="email" type="email" aria-invalid={!!errors.email} {...register("email")} />
-                <FieldError message={errors.email?.message} />
+                <Label htmlFor="kioskWelcomeMessage">Welcome message</Label>
+                <Input id="kioskWelcomeMessage" aria-invalid={!!errors.kioskWelcomeMessage} {...register("kioskWelcomeMessage")} />
+                <FieldError message={errors.kioskWelcomeMessage?.message} />
               </div>
             </CardContent>
           </Card>
         </div>
 
         <div className="flex flex-col gap-4 xl:sticky xl:top-24 xl:self-start">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-bold text-ink">Live preview</h2>
-            <DemoBadge>Not persisted</DemoBadge>
-          </div>
-          <BrandingPreview values={values} />
+          <h2 className="text-lg font-bold text-ink">Live preview</h2>
+          <BrandingPreview values={values} contact={{ address: org.address, phone: org.phone, email: org.email }} />
           <div className="flex flex-col gap-2 rounded-2xl border border-line bg-surface p-4 shadow-soft">
-            <Button type="submit" disabled={!isDirty}>
-              Apply to this session
+            <Button type="submit" disabled={!isDirty || isSubmitting}>
+              {isSubmitting && <LoaderCircle className="animate-spin" aria-hidden="true" />}
+              Save branding
             </Button>
-            <div className="flex gap-2">
-              <Button type="button" variant="outline" className="flex-1" disabled={!isDirty} onClick={() => reset()}>
-                Discard edits
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                className="flex-1"
-                disabled={!isPreviewing}
-                onClick={() => {
-                  resetOrganization();
-                  reset(toValues(baseOrganization));
-                  setApplied(false);
-                }}
-              >
-                <RotateCcw /> Restore original
-              </Button>
-            </div>
-            {applied && isPreviewing && (
+            <Button type="button" variant="outline" disabled={!isDirty || isSubmitting} onClick={() => reset()}>
+              Discard edits
+            </Button>
+            <FormAlert message={formError} />
+            {saved && !isDirty && (
               <p role="status" className="flex items-center gap-1.5 text-sm font-semibold text-success">
-                <CircleCheck className="size-4" aria-hidden="true" /> Applied — open the dashboard or kiosk to see it everywhere.
+                <CircleCheck className="size-4" aria-hidden="true" /> Saved — the dashboard, kiosk and receipts now use these settings.
               </p>
             )}
-            <p className="text-xs text-ink-subtle">Saving to your organization (and uploading the logo to private storage) arrives with the database phase.</p>
+            <p className="text-xs text-ink-subtle">Address, phone and email are edited under Settings.</p>
           </div>
         </div>
       </form>

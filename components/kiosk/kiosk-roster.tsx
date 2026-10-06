@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import type { Classroom } from "@/types/domain";
-import type { ChildRecord } from "@/lib/data";
+import type { ChildRecord } from "@/types/domain";
 import { useOrganization } from "@/components/shared/organization-provider";
 import { useChildDays } from "@/lib/hooks/use-attendance";
 import { formatTime } from "@/lib/utils";

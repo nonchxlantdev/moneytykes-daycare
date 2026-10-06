@@ -4,8 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronRight, EllipsisVertical, LogIn, LogOut, Phone, SearchX, UserRound } from "lucide-react";
-import type { ChildAttendanceStatus, Classroom } from "@/types/domain";
-import type { ChildRecord } from "@/lib/data";
+import type { ChildAttendanceStatus, ChildRecord, Classroom, EnrollmentStatus } from "@/types/domain";
 import { ChildAvatar } from "@/components/shared/child-avatar";
 import { EmptyState } from "@/components/shared/empty-state";
 import { useOrganization } from "@/components/shared/organization-provider";
@@ -22,14 +21,22 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useCan } from "@/components/shared/viewer-provider";
 import { useChildDays } from "@/lib/hooks/use-attendance";
 import { ageLabel, formatTime, fullName } from "@/lib/utils";
 import { AddChildDialog } from "./add-child-dialog";
 
 type StatusFilter = "all" | ChildAttendanceStatus;
 
+const ENROLLMENT_BADGE: Record<EnrollmentStatus, { label: string; tone: "success" | "neutral" | "warning" | "secondary" }> = {
+  ACTIVE: { label: "Enrolled", tone: "success" },
+  WAITLIST: { label: "Waitlist", tone: "secondary" },
+  INACTIVE: { label: "Inactive", tone: "neutral" },
+  WITHDRAWN: { label: "Withdrawn", tone: "neutral" },
+};
+
 export function ChildrenDirectory({
-  roster: initialRoster,
+  roster,
   classrooms,
   initialQuery,
 }: {
@@ -39,11 +46,14 @@ export function ChildrenDirectory({
 }) {
   const org = useOrganization();
   const router = useRouter();
-  const [roster, setRoster] = useState(initialRoster);
+  const canWrite = useCan("children:write");
   const [query, setQuery] = useState(initialQuery);
   const [classFilter, setClassFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const { byChild, summary } = useChildDays(roster);
+  // Headline counts cover currently enrolled children; the table lists every status.
+  const enrolled = useMemo(() => roster.filter((c) => c.enrollmentStatus === "ACTIVE"), [roster]);
+  const { summary } = useChildDays(enrolled);
+  const { byChild } = useChildDays(roster);
   const classroomName = useMemo(() => new Map(classrooms.map((c) => [c.id, c.name])), [classrooms]);
 
   const rows = useMemo(() => {
@@ -66,12 +76,7 @@ export function ChildrenDirectory({
       <PageHeader
         title="Children"
         description={`${summary.enrolled} enrolled · ${summary.present} at daycare now · ${summary.checkedOut} checked out · ${summary.notArrived} not in yet`}
-        actions={
-          <AddChildDialog
-            classrooms={classrooms}
-            onCreate={(child) => setRoster((prev) => [child, ...prev])}
-          />
-        }
+        actions={canWrite ? <AddChildDialog classrooms={classrooms} /> : undefined}
       />
 
       <Card className="overflow-hidden">
@@ -135,25 +140,17 @@ export function ChildrenDirectory({
                 const day = byChild.get(child.id);
                 const primary = child.guardians.find((g) => g.link.isPrimary) ?? child.guardians[0];
                 const href = `/children/${child.id}`;
-                const isDraft = child.id.startsWith("draft-"); // session-only record, no profile page yet
+                const enrollment = ENROLLMENT_BADGE[child.enrollmentStatus];
                 return (
-                  <TableRow
-                    key={child.id}
-                    className={isDraft ? "bg-primary/[0.03]" : "cursor-pointer"}
-                    onClick={isDraft ? undefined : () => router.push(href)}
-                  >
+                  <TableRow key={child.id} className="cursor-pointer" onClick={() => router.push(href)}>
                     <TableCell>
                       <ChildAvatar name={fullName(child)} photoUrl={child.photoUrl} size="sm" />
                     </TableCell>
                     <TableCell>
-                      {isDraft ? (
-                        <span className="font-bold text-ink">{fullName(child)}</span>
-                      ) : (
-                        <Link href={href} className="font-bold text-ink hover:text-primary" onClick={(e) => e.stopPropagation()}>
-                          {fullName(child)}
-                        </Link>
-                      )}
-                      {child.allergies.length > 0 && (
+                      <Link href={href} className="font-bold text-ink hover:text-primary" onClick={(e) => e.stopPropagation()}>
+                        {fullName(child)}
+                      </Link>
+                      {child.hasAllergyAlert && (
                         <Badge tone="danger" className="ml-2">
                           Allergy
                         </Badge>
@@ -161,7 +158,7 @@ export function ChildrenDirectory({
                     </TableCell>
                     <TableCell className="text-ink-muted">{ageLabel(child.dateOfBirth)}</TableCell>
                     <TableCell>
-                      <Badge tone="secondary">{classroomName.get(child.classroomId)}</Badge>
+                      {child.classroomId ? <Badge tone="secondary">{classroomName.get(child.classroomId) ?? "—"}</Badge> : <span className="text-ink-subtle">—</span>}
                     </TableCell>
                     <TableCell>
                       {primary ? (
@@ -175,9 +172,7 @@ export function ChildrenDirectory({
                     </TableCell>
                     <TableCell className="text-ink-muted tabular">{primary?.guardian.phone ?? "—"}</TableCell>
                     <TableCell>
-                      <Badge tone={child.enrollmentStatus === "ACTIVE" ? "success" : "neutral"}>
-                        {child.enrollmentStatus === "ACTIVE" ? "Enrolled" : isDraft ? "New · Waitlist" : "Waitlist"}
-                      </Badge>
+                      <Badge tone={enrollment.tone}>{enrollment.label}</Badge>
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
@@ -189,7 +184,6 @@ export function ChildrenDirectory({
                       </div>
                     </TableCell>
                     <TableCell onClick={(e) => e.stopPropagation()}>
-                      {!isDraft && (
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <button
@@ -228,7 +222,6 @@ export function ChildrenDirectory({
                           )}
                         </DropdownMenuContent>
                       </DropdownMenu>
-                      )}
                     </TableCell>
                   </TableRow>
                 );
