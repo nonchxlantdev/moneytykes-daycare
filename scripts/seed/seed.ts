@@ -35,6 +35,11 @@ function arg(name: string): string | undefined {
   return value && !value.startsWith("--") ? value : "";
 }
 
+function quoteWindowsArg(value: string): string {
+  if (!/[\s"]/.test(value)) return value;
+  return `"${value.replace(/"/g, '\\"')}"`;
+}
+
 function fail(message: string): never {
   console.error(`\n✖ ${message}\n`);
   process.exit(1);
@@ -96,7 +101,13 @@ async function main() {
 
   const wranglerArgs = ["wrangler", "d1", "execute", "DB", `--${target}`, `--file=${outFile}`];
   console.log(`Running: npx ${wranglerArgs.join(" ")}  (in cloudflare/d1-gateway)`);
-  execFileSync(process.platform === "win32" ? "npx.cmd" : "npx", wranglerArgs, { cwd: WORKER_DIR, stdio: "inherit", shell: process.platform === "win32" });
+  // shell is required to resolve npx on Windows, and cmd.exe splits unquoted paths.
+  const spawnArgs = process.platform === "win32" ? wranglerArgs.map(quoteWindowsArg) : wranglerArgs;
+  execFileSync(process.platform === "win32" ? "npx.cmd" : "npx", spawnArgs, {
+    cwd: WORKER_DIR,
+    stdio: "inherit",
+    shell: process.platform === "win32",
+  });
 
   console.log("\n✔ Seed complete");
   console.table(seed.summary);
