@@ -1,8 +1,12 @@
-# White-Label Daycare Management SaaS — Phase 2 (Cloudflare D1)
+# White-Label Daycare Management SaaS — on Cloudflare Workers
 
 A **multi-tenant, white-label daycare management platform** built by Vision Forge Ltd. Each daycare (tenant) gets its own name, logo, colors, contact details, receipts and kiosk greeting from configuration, on one codebase.
 
 Phase 1 was a high-fidelity frontend on mock data. **Phase 2 makes the core real:** organizations, members and roles, children, guardians, staff, kiosk check-in/out, the staff time clock, branding and settings are stored in **Cloudflare D1** through Drizzle ORM, with server-side tenant isolation, role checks, validation and audit logging. Billing, documents, messaging and other modules are still mock or placeholders (see [What is still mock](#what-is-still-mock-phase-3)).
+
+**Production:** the app runs on **Cloudflare Workers** (via vinext) with a native D1 binding. Every daycare is a subdomain of the platform domain — `mydaycare.visionforgestudio.app` is the first — and all of them run the same Worker. `visionforgestudio.app` itself is the Vision Forge platform sign-in, never a daycare. Vercel stays as a paused fallback until Cloudflare is verified.
+
+**Setting it up:** follow [docs/MANUAL_SETUP.md](docs/MANUAL_SETUP.md) (click-by-click checklist). How it works: [docs/CLOUDFLARE_DEPLOYMENT.md](docs/CLOUDFLARE_DEPLOYMENT.md) and [docs/TENANCY.md](docs/TENANCY.md).
 
 > **Little Stars Daycare** is **sample data** created by the development seed. No screen hard-codes it, and no Vision Forge branding appears inside a tenant.
 
@@ -15,6 +19,7 @@ Phase 1 was a high-fidelity frontend on mock data. **Phase 2 makes the core real
 - [Quick start (local)](#quick-start-local)
 - [Environment variables](#environment-variables)
 - [Database, migrations and seed](#database-migrations-and-seed)
+- [Subdomain tenancy](#subdomain-tenancy)
 - [Multi-tenancy and security](#multi-tenancy-and-security)
 - [Roles and permissions](#roles-and-permissions)
 - [Attendance and the kiosk](#attendance-and-the-kiosk)
@@ -47,84 +52,93 @@ Phase 1 was a high-fidelity frontend on mock data. **Phase 2 makes the core real
 ## Architecture
 
 ```
-Browser (admin dashboard / kiosk tablet)
+git push → GitHub → Workers Builds (npm run build:vinext → npx wrangler deploy)
+
+Browser (admin dashboard / kiosk tablet) on visionforgestudio.app or <daycare>.visionforgestudio.app
    │  server actions + server components (no client-side DB access)
    ▼
-Next.js 16 on Vercel
-   │  lib/auth          → who is signed in (signed session cookie)
-   │  lib/server        → tenant context, RBAC, Zod validation, services, audit
-   │  lib/db            → Drizzle ORM (sqlite-proxy driver)
-   │  HMAC-signed HTTPS (D1_GATEWAY_SECRET)
+Cloudflare Worker "vision-forge-daycare"   (Next.js app built with vinext)
+   │  proxy.ts           → session wall, www → apex redirect
+   │  lib/tenancy        → hostname → daycare slug (never authorization)
+   │  lib/auth           → who is signed in (signed session cookie) + membership for THAT daycare
+   │  lib/server         → RBAC, Zod validation, services, audit
+   │  lib/db             → Drizzle ORM → native D1 binding "DB"
    ▼
-D1 gateway Worker (cloudflare/d1-gateway) ──binding──▶ Cloudflare D1
+Cloudflare D1 "daycare-db"
 ```
 
 | Area | Choice |
 |---|---|
-| Framework | Next.js 16 (App Router), React 19, TypeScript (strict) |
-| Data | Cloudflare D1 (SQLite), Drizzle ORM + drizzle-kit migrations, a small gateway Worker |
+| Framework | Next.js 16.3 (App Router), React 19, TypeScript (strict) |
+| Hosting | Cloudflare Workers via **vinext** (Next.js API on Vite); `next build` still works for the Vercel fallback |
+| Data | Cloudflare D1 (SQLite), Drizzle ORM + drizzle-kit migrations, native binding on Workers |
 | Validation | Zod (`lib/validation/mutations.ts`) — on the server for every mutation, reused by forms |
 | Styling / UI | Tailwind CSS v4, shadcn/ui-style components on Radix, lucide-react, motion, Recharts |
 | Forms | React Hook Form + Zod |
 | Tests | Vitest + an in-memory SQLite database that applies the real migrations |
 
-Why a gateway Worker instead of the D1 REST API: D1 is only reachable natively from Workers, and the REST API is intended for administrative use with account-wide rate limits. Details in [docs/CLOUDFLARE_SETUP.md](docs/CLOUDFLARE_SETUP.md).
+Why vinext rather than OpenNext, and how the D1 binding is wired: [docs/CLOUDFLARE_DEPLOYMENT.md](docs/CLOUDFLARE_DEPLOYMENT.md). The old Vercel → gateway Worker → D1 path (`cloudflare/d1-gateway`) is kept only for `next dev`/Vercel until Vercel is retired.
 
 **Request flow for every protected read and write:**
 
 1. `lib/auth/credentials.ts` reads the signed session → an identity with an `auth_provider_id`.
-2. `lib/server/tenant-context.ts` finds the `users` row for that id, its oldest **ACTIVE** membership, and that membership's **ACTIVE/TRIAL** organization → `{ user, organizationId, role }`.
-3. A service in `lib/server/services/*` checks the permission, validates input with Zod, and runs queries that are **always** filtered by that `organizationId`.
-4. Mutations write the change and an `audit_logs` row in one atomic batch, then `revalidatePath` refreshes every page.
+2. `lib/tenancy` reads the daycare slug from the `Host` header (`mydaycare.visionforgestudio.app` → `mydaycare`).
+3. `lib/server/tenant-context.ts` finds that organization (must be **ACTIVE/TRIAL**), the `users` row, and an **ACTIVE** membership **in that organization** → `{ user, organizationId, role }`. On pre-cutover test hosts (`*.workers.dev`) the oldest active membership is used.
+4. A service in `lib/server/services/*` checks the permission, validates input with Zod, and runs queries that are **always** filtered by that `organizationId`.
+5. Mutations write the change and an `audit_logs` row in one atomic batch, then `revalidatePath` refreshes every page.
 
 ## Quick start (local)
 
-Requires Node.js 20.9+ (22 LTS recommended).
+Requires Node.js 22.12+ (Cloudflare's build image uses Node 24).
 
 ```bash
 npm install
-npm --prefix cloudflare/d1-gateway install
-
-cp .env.example .env.local                                   # Windows: copy
-cp cloudflare/d1-gateway/.dev.vars.example cloudflare/d1-gateway/.dev.vars
-#   .env.local:   SESSION_SECRET, AUTH_PASSWORD_HASH, D1_GATEWAY_URL=http://127.0.0.1:8787, D1_GATEWAY_SECRET
-#   .dev.vars:    GATEWAY_SECRET = the same value as D1_GATEWAY_SECRET
+cp .dev.vars.example .dev.vars        # Windows: copy — fill in SESSION_SECRET, AUTH_PASSWORD_HASH, AUTH_USER_NAME, AUTH_EMAIL
 
 npm run db:migrate:local
-npm run db:seed:local -- --admin-email you@example.com --admin-name "Your Name"
+npm run tenant:create:local -- --owner-email you@example.com    # the real first daycare, empty
+npm run db:seed:local -- --admin-email you@example.com          # optional: Little Stars sample data
 
-npm run gateway:dev      # terminal 1 — D1 gateway on http://127.0.0.1:8787
-npm run dev              # terminal 2 — app on http://localhost:3000
+npm run dev:vinext       # Workers runtime + local D1
+# http://localhost:3001              platform sign-in
+# http://mydaycare.localhost:3001    My Daycare
+# http://little-stars.localhost:3001 sample daycare (if seeded)
 ```
 
-Sign in with your site password. Demo staff time-clock PINs are printed by the seed (Sarah Wilson `1234`, Michael Carter `2345`, Jasmine Green `3456`, David Thompson `4567`, …). Guardian kiosk PINs accept any 4 digits.
+Sign in with your site password (generate its hash with `npm run hash-password -- "…"`). Demo staff time-clock PINs are printed by the seed (Sarah Wilson `1234`, Michael Carter `2345`, Jasmine Green `3456`, David Thompson `4567`, …). Guardian kiosk PINs accept any 4 digits.
 
 | Script | What it does |
 |---|---|
-| `npm run dev` / `build` / `start` | Next.js |
+| `npm run dev:vinext` | Local dev in the Workers runtime (port 3001) |
+| `npm run build:vinext` | Cloudflare production build (`dist/`) — used by Workers Builds |
+| `npm run preview:vinext` | Build and run the real Worker locally (port 8788) |
+| `npm run deploy:vinext` | Build + deploy from your PC (Workers Builds normally does this on push) |
 | `npm run lint` · `npm run typecheck` · `npm test` | ESLint · TypeScript · Vitest |
 | `npm run db:generate` | Generate a new SQL migration from `lib/db/schema` |
 | `npm run db:migrate:local` / `db:migrate:remote` | Apply migrations (explicit; remote asks for confirmation) |
-| `npm run db:seed:local` / `db:seed:remote` | Development seed (remote needs `--confirm-remote <db name>`) |
-| `npm run gateway:dev` / `gateway:deploy` | Run / deploy the D1 gateway Worker |
-| `npm run hash-password -- "…"` | bcrypt hash for `AUTH_PASSWORD_HASH` |
+| `npm run db:migrations:list:local` / `:remote` | Pending migrations |
+| `npm run tenant:create:local` / `tenant:create:remote` | Create a daycare (remote needs `--confirm-remote daycare-db`) |
+| `npm run db:seed:local` / `db:seed:remote` | Sample data (remote needs `--confirm-remote`; staging only) |
+| `npm run dev` / `build` / `start` | Plain Next.js (Vercel fallback; needs the legacy gateway: `npm run gateway:dev`) |
+| `npm run hash-password -- "…"` | bcrypt hash for `AUTH_USERS` / `AUTH_PASSWORD_HASH` |
 
 ## Environment variables
 
-See `.env.example`. Nothing here may be exposed to the browser (no `NEXT_PUBLIC_*` variables are used).
+Names only in `.env.example` / `.dev.vars.example`. No `NEXT_PUBLIC_*` variables are used, so nothing reaches the browser.
 
-| Variable | Required | Purpose |
-|---|---|---|
-| `SESSION_SECRET` | yes | Signs the session cookie (≥ 32 chars). |
-| `AUTH_PASSWORD_HASH` | yes | bcrypt hash of the site password. |
-| `AUTH_USER_NAME`, `AUTH_EMAIL` | optional | Name/email of the person who signs in; used by the seed for the owner's `users` row. |
-| `D1_GATEWAY_URL` | yes | Gateway Worker URL. |
-| `D1_GATEWAY_SECRET` | yes | Shared HMAC secret (≥ 32 chars); equals the Worker's `GATEWAY_SECRET`. |
-| `SEED_ADMIN_EMAIL`, `SEED_ADMIN_AUTH_ID`, `SEED_ADMIN_NAME` | seed only | Optional seed overrides. Never set these on Vercel. |
+| Variable | Kind | Where (Cloudflare) | Purpose |
+|---|---|---|---|
+| `DB` | D1 binding | `wrangler.jsonc` | The database |
+| `PLATFORM_ROOT_DOMAIN` | runtime var | `wrangler.jsonc` → `vars` | `visionforgestudio.app`; `<slug>.<this>` is a daycare |
+| `AUTH_COOKIE_DOMAIN` | runtime var | `wrangler.jsonc` → `vars` | Session cookie shared by the platform domain and daycare subdomains |
+| `SESSION_SECRET` | **secret** | Worker → Settings → Variables and Secrets | Signs the session cookie (≥ 32 chars) |
+| `AUTH_USERS` | **secret** | same / Vercel env | JSON array of `{username,passwordHash,name?}` for multi-login (preferred) |
+| `AUTH_PASSWORD_HASH` | **secret** | same | Legacy single-user bcrypt hash when `AUTH_USERS` is unset |
+| `AUTH_USER_NAME`, `AUTH_EMAIL` | runtime (stored as Secret) | same | Legacy single-user name/email; also used by tenant/seed scripts |
+| `D1_GATEWAY_URL`, `D1_GATEWAY_SECRET` | Vercel-only (legacy) | — | Only for `next dev` / Vercel |
+| `SEED_ADMIN_*` | dev only | — | Seed overrides |
 
-Worker secret: `GATEWAY_SECRET` (`.dev.vars` locally, `wrangler secret put` in Cloudflare).
-
-**Vercel:** set `D1_GATEWAY_URL`, `D1_GATEWAY_SECRET`, `SESSION_SECRET` and `AUTH_PASSWORD_HASH` for **Production**, **Preview** and **Development** (plus the optional `AUTH_USER_NAME` / `AUTH_EMAIL`). Point Preview at a staging Worker/database if you don't want previews to touch production data. Full table in [docs/CLOUDFLARE_SETUP.md § 8](docs/CLOUDFLARE_SETUP.md#8-vercel-environment-variables).
+Full table with value formats: [docs/CLOUDFLARE_DEPLOYMENT.md § Configuration and secrets](docs/CLOUDFLARE_DEPLOYMENT.md#configuration-and-secrets).
 
 ## Database, migrations and seed
 
@@ -151,7 +165,19 @@ Every tenant table has `organization_id` and composite indexes that start with i
 
 **Migrations** are generated (`npm run db:generate`) and applied **only** by explicit commands (`npm run db:migrate:local|remote`). Nothing runs migrations automatically. The Worker refuses schema-changing SQL.
 
-**Seed** (`scripts/seed`) — development only, never automatic, `INSERT OR IGNORE` only. Creates Little Stars Daycare (4 classes, 34 children including the eight named demo children, ~80 guardians, 8 staff with hashed PINs, a Front Desk iPad device, ~10 weekdays of history plus today), a second tenant for isolation checks, and links your identity as `DAYCARE_OWNER` by `auth_provider_id` (default `password:usr_bootstrap`). See [docs/CLOUDFLARE_SETUP.md § 7](docs/CLOUDFLARE_SETUP.md#7-seed-sample-data-development-only).
+**Seed** (`scripts/seed`) — development only, never automatic, `INSERT OR IGNORE` only. Creates Little Stars Daycare (4 classes, 34 children including the eight named demo children, ~80 guardians, 8 staff with hashed PINs, a Front Desk iPad device, ~10 weekdays of history plus today), a second tenant for isolation checks, and links your identity as `DAYCARE_OWNER` by `auth_provider_id` (default `password:usr_bootstrap`). Local/staging only — production daycares are created with `npm run tenant:create:remote` (no sample data).
+
+## Subdomain tenancy
+
+| Address | Result |
+|---|---|
+| `visionforgestudio.app` | Platform sign-in; after sign-in → your daycare (or a chooser if you belong to several) |
+| `www.visionforgestudio.app` | Redirects to `visionforgestudio.app` |
+| `mydaycare.visionforgestudio.app` | My Daycare — branding, data and access from its `organizations` row |
+| `unknown.visionforgestudio.app` | "Daycare not found" (404) — never another daycare's data |
+| reserved (`api`, `admin`, `auth`, …) | 404 |
+
+The hostname only selects the daycare; access always requires an active membership in **that** daycare. New daycares need no DNS or deploy changes: `npm run tenant:create:remote -- --slug sunshine --name "Sunshine Daycare" --owner-email … --confirm-remote daycare-db`. Details, slug rules and cookie scope: [docs/TENANCY.md](docs/TENANCY.md).
 
 ## Multi-tenancy and security
 
@@ -161,7 +187,7 @@ Every tenant table has `organization_id` and composite indexes that start with i
 - **Safe errors:** services throw `AppError`s with user-safe messages; everything else becomes a generic message (`toSafeError`). SQL, stack traces, credentials and tokens are only written to server logs. Route error boundaries show a reference code only.
 - **PINs:** staff PINs are bcrypt-hashed (cost 10), never returned to the client, re-verified on every clock action, and unique within an organization.
 - **Sensitive data:** medical notes are only selected on the child profile for roles with `children:read-medical`; audit logs record changed field names, not values.
-- **Gateway:** requests are HMAC-SHA256 signed with a 60-second window; the secret exists only on the Vercel server and in the Worker.
+- **Database access:** on Cloudflare the Worker uses the D1 binding directly; there is no database credential to leak. (The legacy gateway used for Vercel signs every request with HMAC-SHA256.)
 - **Freshness:** all tenant pages are dynamic; every mutation revalidates the layout; the dashboard, attendance and kiosk roster refresh every 30 s while visible, so another device's check-ins appear without a reload.
 
 ## Roles and permissions
@@ -212,7 +238,9 @@ Every tenant table has `organization_id` and composite indexes that start with i
 
 | Route | Purpose | Access |
 |---|---|---|
-| `/login` | Site-password sign-in | public |
+| `/login` | Site-password sign-in (platform or daycare-branded) | public |
+| `/select-daycare` | Platform domain: choose a daycare when you belong to several | signed in |
+| `/api/health` | Deploy check: `{"ok":true,"database":"ok","runtime":"workers"}` | public |
 | `/dashboard` | Metrics, who's here, activity, quick actions, alerts, charts, staff on duty | all roles |
 | `/children`, `/children/[id]` | Directory and profile (overview, guardians, attendance, payments*, documents, notes) | all roles; editing owner/admin |
 | `/attendance` | Daily register + event log | all roles |
@@ -229,20 +257,26 @@ Every tenant table has `organization_id` and composite indexes that start with i
 ```
 app/                        routes; (admin) and kiosk layouts load the tenant via TenantShell
 components/                 UI (unchanged design); dialogs call server actions
-cloudflare/d1-gateway/      the D1 gateway Worker (wrangler.jsonc, src/index.ts)
+wrangler.jsonc, vite.config.ts  Cloudflare Worker config + vinext build
+cloudflare/d1-gateway/      legacy D1 gateway Worker (Vercel only; remove with Vercel)
 drizzle/migrations/         generated SQL migrations (committed)
-docs/CLOUDFLARE_SETUP.md    Cloudflare + Vercel setup
+docs/MANUAL_SETUP.md        step-by-step setup checklist (Cloudflare, GitHub, DNS)
+docs/CLOUDFLARE_DEPLOYMENT.md  architecture, commands, secrets, routing, rollback, Vercel retirement
+docs/TENANCY.md             subdomain tenancy rules
+docs/CLOUDFLARE_SETUP.md    legacy gateway setup (Vercel)
 lib/
   auth/                     session cookie, site-password login, tenant resolution for pages/actions
-  db/                       Drizzle schema, client, gateway protocol + executor, repositories
+  db/                       Drizzle schema, client, D1 binding executor (+ legacy gateway), repositories
+  tenancy/                  hostname → daycare slug, reserved subdomains, slug rules
   server/                   tenant context, permissions, errors, mappers, services, server actions
   data/                     cached read facade used by pages
   validation/mutations.ts   Zod schemas for every mutation
   domain/                   pure derivations: attendance status, staff hours, balances
   mock-data/payments.ts     remaining mock module (billing)
   utils/timezone.ts         UTC ↔ organization timezone
-scripts/seed/               development seed (build-seed.ts is pure and tested)
-tests/                      Vitest: tenant isolation, RBAC, attendance, staff time, children/guardians, gateway, seed
+scripts/tenants/            create a real daycare tenant
+scripts/seed/               development sample data (build-seed.ts is pure and tested)
+tests/                      Vitest: tenancy, tenant isolation, RBAC, attendance, staff time, children/guardians, D1 executor, gateway, seed
 ```
 
 ## Testing
@@ -251,31 +285,31 @@ tests/                      Vitest: tenant isolation, RBAC, attendance, staff ti
 npm test             # Vitest — in-memory SQLite with the real migrations
 npm run lint
 npm run typecheck
-npm run build
-npm --prefix cloudflare/d1-gateway run typecheck
+npm run build            # Next.js build (Vercel fallback)
+npm run build:vinext     # Cloudflare Workers build
+npx wrangler deploy --dry-run
 ```
 
-The suite covers: tenant isolation with a second organization (reads, updates, links, attendance, staff PINs across tenants), RBAC for each role, the attendance and time-clock state machines (double check-in/out, idempotent retries, concurrent submissions, withdrawn children, unauthorized pickups), audit rows, PIN hashing and uniqueness, safe error mapping, the gateway's request signing and statement guard, and the seed.
+The suite covers: tenant isolation with a second organization (reads, updates, links, attendance, staff PINs across tenants), RBAC for each role, the attendance and time-clock state machines (double check-in/out, idempotent retries, concurrent submissions, withdrawn children, unauthorized pickups), audit rows, PIN hashing and uniqueness, safe error mapping, hostname → tenant resolution, reserved/invalid slugs, cookie scope, unknown-tenant and cross-tenant rejection, the native D1 executor, the gateway's request signing, the first-tenant script and the seed.
 
 ## Authentication
 
-Unchanged from Phase 1: one site password (bcrypt hash in `AUTH_PASSWORD_HASH`), a signed httpOnly session cookie (`SESSION_SECRET`), and `proxy.ts` keeping every route except `/login` behind a session. Phase 2 adds the step after sign-in: the identity `password:usr_bootstrap` is mapped to a D1 `users` row and membership. A real multi-user identity provider can replace the password login later by producing a different `auth_provider_id`; nothing else changes.
+Env-based logins via `AUTH_USERS` (JSON array of username + bcrypt hash; preferred) or the legacy `AUTH_USERNAME` + `AUTH_PASSWORD_HASH` pair. A signed httpOnly session cookie (`vf_session`, `SESSION_SECRET`) and `proxy.ts` keep every route except `/login` and `/api/health` behind a session. Every successful env login still maps to identity `password:usr_bootstrap` for D1 memberships (same daycare access). On the production domain the cookie is scoped to `visionforgestudio.app` (HttpOnly, Secure, SameSite=Lax) so signing in on the platform domain also works on your daycare's subdomain; elsewhere it is host-only. There is no OAuth provider, so there are no callback URLs to configure. bcrypt requires the Workers Paid plan.
 
 ## Deployment
 
-1. Cloudflare: create the D1 database, set `database_id`, set the Worker secret, deploy the Worker, apply migrations — [docs/CLOUDFLARE_SETUP.md](docs/CLOUDFLARE_SETUP.md) steps 2–6.
-2. Create your organization and owner membership (seed for dev/staging; SQL for production — step 7).
-3. Vercel: set the environment variables (step 8) and redeploy.
+Push to `main` → Cloudflare Workers Builds runs `npm run build:vinext` and `npx wrangler deploy`. One-time setup (Workers Paid, D1, migrations, first daycare, GitHub connection, secrets, DNS, routes): [docs/MANUAL_SETUP.md](docs/MANUAL_SETUP.md). Rollback and Vercel retirement: [docs/CLOUDFLARE_DEPLOYMENT.md](docs/CLOUDFLARE_DEPLOYMENT.md).
 
-Vercel builds never touch the database; migrations and seeds are always manual.
+Builds never touch the database; migrations, tenants and seeds are always explicit commands.
 
 ## Troubleshooting
 
 | Symptom | Fix |
 |---|---|
-| "We couldn't load this page" | The app can't reach the gateway — check `D1_GATEWAY_URL`, that `npm run gateway:dev` is running locally, and the server log. |
-| Redirected to `/no-access` after signing in | Your identity has no active membership. Run `npm run db:seed:local -- --admin-email …` (dev) or insert the rows (production). |
+| "We couldn't load this page" | On Cloudflare: open `/api/health`; `database: unavailable` means the D1 binding/`database_id` or migrations are wrong. With `next dev`: the legacy gateway isn't running. Check Worker logs (Observability). |
+| "Daycare not found" | No ACTIVE/TRIAL organization with that slug — create it with `npm run tenant:create:remote`. |
+| Redirected to `/no-access` after signing in | Your identity has no active membership in that daycare. Run `npm run tenant:create:remote -- --owner-email …` (or `:local`). |
 | `/forbidden` | Your role can't open that page (e.g. staff → Settings). |
 | Gateway `401` in server logs | `D1_GATEWAY_SECRET` and the Worker's `GATEWAY_SECRET` differ. |
 | `no such table` in server logs | Run the migrations for that database. |
-| Sign-in refused | `SESSION_SECRET` / `AUTH_PASSWORD_HASH` missing or malformed (escape `$` as `\$` in `.env.local` only). |
+| Sign-in refused / "temporarily unavailable" | `SESSION_SECRET` / `AUTH_USERS` (or legacy `AUTH_PASSWORD_HASH`) missing or malformed (escape `$` as `\$` in `.env.local` only, never in Cloudflare, Vercel, or `.dev.vars`). On the free Workers plan bcrypt exceeds the CPU limit — upgrade to Workers Paid. |

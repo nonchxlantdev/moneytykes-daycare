@@ -7,6 +7,12 @@ const COOKIE = "vf_session";
 
 export const SESSION_COOKIE = COOKIE;
 
+export interface SessionPayload {
+  userId: string;
+  /** Which env operator signed in (for display name). Optional for older cookies. */
+  username?: string;
+}
+
 function signingKey(): Uint8Array | null {
   const secret = process.env.SESSION_SECRET;
   if (!secret || secret.length < 32) return null;
@@ -17,10 +23,16 @@ export function sessionSecretConfigured(): boolean {
   return signingKey() !== null;
 }
 
-export async function encryptSession(userId: string, expiresAt: Date): Promise<string> {
+export async function encryptSession(
+  userId: string,
+  expiresAt: Date,
+  username?: string,
+): Promise<string> {
   const key = signingKey();
   if (!key) throw new Error("SESSION_SECRET is not configured");
-  return new SignJWT({ userId })
+  const claims: Record<string, string> = { userId };
+  if (username) claims.username = username;
+  return new SignJWT(claims)
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(userId)
     .setIssuedAt()
@@ -28,14 +40,15 @@ export async function encryptSession(userId: string, expiresAt: Date): Promise<s
     .sign(key);
 }
 
-export async function decryptSession(token: string | undefined): Promise<{ userId: string } | null> {
+export async function decryptSession(token: string | undefined): Promise<SessionPayload | null> {
   const key = signingKey();
   if (!key || !token) return null;
   try {
     const { payload } = await jwtVerify(token, key, { algorithms: ["HS256"] });
     const userId = typeof payload.userId === "string" ? payload.userId : payload.sub;
     if (!userId) return null;
-    return { userId };
+    const username = typeof payload.username === "string" ? payload.username : undefined;
+    return { userId, username };
   } catch {
     return null;
   }

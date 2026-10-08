@@ -1,0 +1,16 @@
+# Copy to .dev.vars (git-ignored) for the LOCAL Cloudflare Workers runtime:
+#   npm run dev:vinext       → http://localhost:3001, http://mydaycare.localhost:3001
+#   npm run preview:vinext   → production build on http://localhost:8788
+# Wrangler reads this file the way the deployed Worker reads its Secrets.
+# Production values are set in the Cloudflare dashboard (docs/MANUAL_SETUP.md), never here.
+# On Windows, do NOT escape $ in this file (unlike .env.local).
+
+SESSION_SECRET=
+# Preferred multi-login JSON (hashes as-is — do NOT escape $ in .dev.vars):
+# AUTH_USERS=[{"username":"admin","passwordHash":"$2b$12$...","name":"Admin"}]
+AUTH_USERS=
+# Legacy single-user (only when AUTH_USERS is unset):
+AUTH_USERNAME=
+AUTH_PASSWORD_HASH=
+AUTH_USER_NAME=
+AUTH_EMAIL=

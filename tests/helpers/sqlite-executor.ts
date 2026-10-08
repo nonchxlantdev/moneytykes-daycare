@@ -10,16 +10,12 @@ import { classifySqlError, type SqlExecutor } from "@/lib/db/executor";
 import { createDb, type AppDb } from "@/lib/db/client";
 import type { GatewayStatement, GatewayStatementResult } from "@/lib/db/gateway-protocol";
 
-const MIGRATIONS_DIR = join(__dirname, "..", "..", "drizzle", "migrations");
+const MIGRATIONS_DIR = join(import.meta.dirname, "..", "..", "drizzle", "migrations");
 
 export function createTestDatabase(): { db: AppDb; sqlite: DatabaseSync } {
   const sqlite = new DatabaseSync(":memory:");
   sqlite.exec("PRAGMA foreign_keys = ON;"); // D1 enforces foreign keys
-  for (const file of readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql")).sort()) {
-    for (const statement of readFileSync(join(MIGRATIONS_DIR, file), "utf8").split("--> statement-breakpoint")) {
-      if (statement.trim()) sqlite.exec(statement);
-    }
-  }
+  for (const statement of migrationStatements()) sqlite.exec(statement);
 
   const bind = (params: unknown[]): SQLInputValue[] =>
     params.map((p) => (typeof p === "boolean" ? (p ? 1 : 0) : (p as SQLInputValue)));
@@ -60,4 +56,12 @@ export function createTestDatabase(): { db: AppDb; sqlite: DatabaseSync } {
 
 export function readMigrationFiles(): string[] {
   return readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql"));
+}
+
+/** Every statement of every committed migration, in order. */
+export function migrationStatements(): string[] {
+  return readMigrationFiles()
+    .sort()
+    .flatMap((file) => readFileSync(join(MIGRATIONS_DIR, file), "utf8").split("--> statement-breakpoint"))
+    .filter((statement) => statement.trim());
 }

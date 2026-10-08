@@ -23,6 +23,7 @@ import { ChildAttendanceTab } from "./child-attendance-tab";
 import { ChildDocumentsTab, ChildGuardiansTab, ChildNotesTab } from "./child-misc-tabs";
 import { ChildOverviewTab } from "./child-overview-tab";
 import { ChildPaymentsTab } from "./child-payments-tab";
+import { DemoSoftRemove } from "@/components/shared/demo-soft-remove";
 import { EditChildDialog } from "./edit-child-dialog";
 
 const ENROLLMENT_LABEL: Record<EnrollmentStatus, string> = {
@@ -118,8 +119,17 @@ export function ChildProfile({
               ))}
             </dl>
             {canWrite && (
-              <div className="mt-4">
+              <div className="mt-4 flex flex-wrap gap-2">
                 <EditChildDialog child={child} classrooms={classrooms} />
+                {child.enrollmentStatus !== "WITHDRAWN" && (
+                  <DemoSoftRemove
+                    label="Remove"
+                    subjectName={name}
+                    confirmLabel="Remove child"
+                    redirectTo="/children"
+                    onRemove={() => setChildStatusAction({ childId: child.id, enrollmentStatus: "WITHDRAWN" })}
+                  />
+                )}
               </div>
             )}
           </div>

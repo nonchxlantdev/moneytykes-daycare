@@ -16,6 +16,10 @@ const eslintConfig = defineConfig([
     "cloudflare/**/node_modules/**",
     "cloudflare/**/.wrangler/**",
     "drizzle/**",
+    // Cloudflare (vinext) build output and local Wrangler state.
+    "dist/**",
+    ".vinext/**",
+    ".wrangler/**",
   ]),
 ]);
 

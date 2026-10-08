@@ -5,7 +5,7 @@ import { timesheet } from "@/lib/domain/staff-time";
 import { dateKey, formatCurrency, formatDuration, formatTime, fullName } from "@/lib/utils";
 import { methodLabel } from "@/components/payments/payment-labels";
 
-export type ReportId = "daily" | "history" | "staff" | "payments";
+export type ReportId = "daily" | "weekly" | "history" | "staff" | "payments";
 export type RangePreset = "today" | "yesterday" | "week" | "month" | "custom";
 export interface DateRange {
   from: string;
@@ -82,6 +82,53 @@ export function dailyReport(
       { label: "Attended", value: String(s.present + s.checkedOut) },
       { label: "Still here", value: String(s.present) },
       { label: "Absent", value: String(s.notArrived) },
+    ],
+  };
+}
+
+/**
+ * Whole-daycare weekly check-in sheet for ministry / audit: one row per child,
+ * with check-in and check-out times for each day in the range.
+ */
+export function weeklyCheckInSheet(
+  roster: ChildRecord[],
+  events: AttendanceEvent[],
+  range: DateRange,
+  tz: string,
+  now: Date,
+  classroomName: (id: string | undefined) => string,
+): ReportTable {
+  const dates = datesBetween(range);
+  const short = (d: string) => {
+    const [y, m, day] = d.split("-").map(Number);
+    const label = new Date(Date.UTC(y, m - 1, day)).toLocaleDateString("en-BZ", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      timeZone: "UTC",
+    });
+    return label;
+  };
+  const headers = ["Child", "Class", ...dates.flatMap((d) => [`${short(d)} In`, `${short(d)} Out`])];
+  const active = roster.filter((c) => c.enrollmentStatus === "ACTIVE" || c.enrollmentStatus === "INACTIVE");
+  let attendedDays = 0;
+  const rows = active.map((c) => {
+    const cells: string[] = [fullName(c), classroomName(c.classroomId)];
+    for (const date of dates) {
+      const day = deriveDailyAttendance([c], events, date, tz, now)[0];
+      if (day?.checkIn) attendedDays++;
+      cells.push(day?.checkIn ? formatTime(day.checkIn.eventTime, tz) : "—");
+      cells.push(day?.checkOut ? formatTime(day.checkOut.eventTime, tz) : day?.status === "IN" ? "Still in" : "—");
+    }
+    return cells;
+  });
+  return {
+    headers,
+    rows,
+    summary: [
+      { label: "Children on sheet", value: String(active.length) },
+      { label: "Days in range", value: String(dates.length) },
+      { label: "Child-days with check-in", value: String(attendedDays) },
     ],
   };
 }

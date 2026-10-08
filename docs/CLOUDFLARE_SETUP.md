@@ -1,4 +1,6 @@
-# Cloudflare D1 setup
+# Cloudflare D1 setup (legacy gateway)
+
+> **Legacy (Vercel only).** This page describes the Phase 2 setup where Next.js ran on **Vercel** and reached D1 through the gateway Worker. The app now runs on **Cloudflare Workers** with a native D1 binding — follow [MANUAL_SETUP.md](MANUAL_SETUP.md) and [CLOUDFLARE_DEPLOYMENT.md](CLOUDFLARE_DEPLOYMENT.md) instead. Keep this page only until Vercel is retired. Note: the database commands below now run from the project root (`wrangler.jsonc`), e.g. `npm run db:migrate:remote`.
 
 How the daycare app reaches its database, and every step to set it up locally and in production.
 
@@ -123,9 +125,10 @@ Vercel → Project → **Settings → Environment Variables**:
 | `D1_GATEWAY_URL` | ✅ | ✅ | ✅ | Deployed Worker URL, no trailing slash. Preview may point at a staging Worker. |
 | `D1_GATEWAY_SECRET` | ✅ | ✅ | ✅ | Same value as that Worker's `GATEWAY_SECRET`. Mark **Sensitive**. |
 | `SESSION_SECRET` | ✅ | ✅ | ✅ | Existing. Different value per environment. Sensitive. |
-| `AUTH_PASSWORD_HASH` | ✅ | ✅ | ✅ | Existing. Paste the bcrypt hash as-is (no `\$` escaping in Vercel). |
-| `AUTH_USER_NAME` | optional | optional | optional | Existing. |
-| `AUTH_EMAIL` | optional | optional | optional | Existing. |
+| `AUTH_USERS` | ✅ | ✅ | ✅ | JSON array of `{username,passwordHash,name?}`. Paste bcrypt hashes as-is (no `\$`). Prefer this over the single-user vars. |
+| `AUTH_USERNAME` / `AUTH_PASSWORD_HASH` | legacy | legacy | legacy | Only when `AUTH_USERS` is unset. Paste hash as-is (no `\$`). |
+| `AUTH_USER_NAME` | optional | optional | optional | Legacy single-user display name. |
+| `AUTH_EMAIL` | optional | optional | optional | Legacy single-user email. |
 
 "Development" is what `vercel env pull` / `vercel dev` use; for plain `npm run dev` use `.env.local`. **Redeploy** after changing variables. Do not add `SEED_*` variables to Vercel — the app never reads them.
 
@@ -134,7 +137,7 @@ If Preview deployments share the production Worker and secret, they read and wri
 ## 9. Local development
 
 ```bash
-cp .env.example .env.local                 # fill in SESSION_SECRET, AUTH_PASSWORD_HASH, D1_* (see below)
+cp .env.example .env.local                 # fill in SESSION_SECRET, AUTH_USERS (or AUTH_PASSWORD_HASH), D1_* (see below)
 cp cloudflare/d1-gateway/.dev.vars.example cloudflare/d1-gateway/.dev.vars   # set GATEWAY_SECRET
 npm run db:migrate:local
 npm run db:seed:local -- --admin-email you@example.com

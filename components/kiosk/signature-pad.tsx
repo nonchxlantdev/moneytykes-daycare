@@ -21,6 +21,8 @@ interface SignaturePadProps {
   label?: string;
   className?: string;
   ink?: string;
+  /** Printed under the signature line (parent / guardian name). */
+  signerName?: string;
 }
 
 /**
@@ -32,7 +34,14 @@ interface SignaturePadProps {
  * Strokes are kept as vectors so the canvas re-renders crisply when
  * the tablet rotates or the container resizes.
  */
-export function SignaturePad({ ref, onInkChange, label = "Signature area", className, ink = "#0f1b3d" }: SignaturePadProps) {
+export function SignaturePad({
+  ref,
+  onInkChange,
+  label = "Signature area",
+  className,
+  ink = "#0f1b3d",
+  signerName,
+}: SignaturePadProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const strokes = useRef<Stroke[]>([]);
@@ -181,10 +190,15 @@ export function SignaturePad({ ref, onInkChange, label = "Signature area", class
           <span className="text-lg font-semibold">Sign here</span>
         </div>
       )}
-      <div className="pointer-events-none absolute inset-x-8 bottom-10 border-b-2 border-line" aria-hidden="true" />
-      <span className="pointer-events-none absolute bottom-3 left-8 text-xs font-bold tracking-wide text-ink-subtle uppercase" aria-hidden="true">
-        Signature
-      </span>
+      <div className="pointer-events-none absolute inset-x-8 bottom-14 border-b-2 border-line" aria-hidden="true" />
+      <div className="pointer-events-none absolute inset-x-8 bottom-3 flex flex-col gap-0.5" aria-hidden="true">
+        {signerName ? (
+          <span className="truncate text-base font-bold tracking-tight text-ink">{signerName}</span>
+        ) : null}
+        <span className="text-xs font-bold tracking-wide text-ink-subtle uppercase">
+          {signerName ? "Sign above your name" : "Signature"}
+        </span>
+      </div>
       <button
         type="button"
         onClick={clear}

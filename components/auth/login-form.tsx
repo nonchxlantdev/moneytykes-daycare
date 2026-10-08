@@ -26,6 +26,10 @@ function SubmitButton() {
   );
 }
 
+/**
+ * Credentials form only. On success the server sets the session cookie and
+ * Next refreshes /login, which mounts <PostLoginWelcome> for the star animation.
+ */
 export function LoginForm() {
   const [state, action] = useActionState(signIn, initialState);
   const reduceMotion = useReducedMotion();
@@ -48,6 +52,27 @@ export function LoginForm() {
       </AnimatePresence>
 
       <div className="flex flex-col gap-2">
+        <Label htmlFor="username" className="sr-only">
+          Username
+        </Label>
+        <Input
+          id="username"
+          name="username"
+          type="text"
+          autoComplete="username"
+          required
+          autoFocus
+          placeholder="Username"
+          aria-invalid={Boolean(state.fieldErrors?.username)}
+          aria-describedby={state.fieldErrors?.username ? "username-error" : undefined}
+          className="h-12"
+        />
+        <span id="username-error">
+          <FieldError message={state.fieldErrors?.username} />
+        </span>
+      </div>
+
+      <div className="flex flex-col gap-2">
         <Label htmlFor="password" className="sr-only">
           Password
         </Label>
@@ -57,7 +82,6 @@ export function LoginForm() {
           type="password"
           autoComplete="current-password"
           required
-          autoFocus
           placeholder="Password"
           aria-invalid={Boolean(state.fieldErrors?.password)}
           aria-describedby={state.fieldErrors?.password ? "password-error" : undefined}

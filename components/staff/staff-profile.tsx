@@ -15,6 +15,8 @@ import { timesheet } from "@/lib/domain/staff-time";
 import { useStaffDays } from "@/lib/hooks/use-attendance";
 import { useNow } from "@/lib/hooks/use-now";
 import { useLiveData } from "@/lib/store/live-data";
+import { DemoSoftRemove } from "@/components/shared/demo-soft-remove";
+import { updateStaffAction } from "@/lib/server/actions";
 import { EMPLOYMENT_LABEL, StaffFormDialog } from "./staff-form-dialog";
 import { distinctDates, formatCalendarDate, formatDuration, formatTime, fullName } from "@/lib/utils";
 
@@ -75,15 +77,32 @@ export function StaffProfile({ member, classrooms }: { member: Staff; classrooms
             <Badge tone="warning">{member.statusNote ?? EMPLOYMENT_LABEL[member.employmentStatus]}</Badge>
           )}
           {canManage && (
-            <StaffFormDialog
-              member={member}
-              classrooms={classrooms}
-              trigger={
-                <Button variant="outline" size="sm">
-                  <Pencil /> Edit
-                </Button>
-              }
-            />
+            <div className="flex flex-wrap gap-2">
+              <StaffFormDialog
+                member={member}
+                classrooms={classrooms}
+                trigger={
+                  <Button variant="outline" size="sm">
+                    <Pencil /> Edit
+                  </Button>
+                }
+              />
+              {member.employmentStatus !== "TERMINATED" && (
+                <DemoSoftRemove
+                  label="Remove"
+                  subjectName={fullName(member)}
+                  confirmLabel="Remove staff member"
+                  redirectTo="/staff"
+                  onRemove={() =>
+                    updateStaffAction({
+                      staffId: member.id,
+                      employmentStatus: "TERMINATED",
+                      statusNote: "Removed in demo",
+                    })
+                  }
+                />
+              )}
+            </div>
           )}
         </div>
       </Card>

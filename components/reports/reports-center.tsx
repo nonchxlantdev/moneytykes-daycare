@@ -23,6 +23,7 @@ import {
   paymentsReport,
   presetRange,
   staffHoursReport,
+  weeklyCheckInSheet,
   type DateRange,
   type RangePreset,
   type ReportId,
@@ -30,6 +31,7 @@ import {
 
 const REPORTS: Array<{ id: ReportId; title: string; body: string; icon: typeof ClipboardCheck; tone: string }> = [
   { id: "daily", title: "Daily Attendance", body: "Who came, when, and who picked them up.", icon: ClipboardCheck, tone: "bg-success/12 text-success" },
+  { id: "weekly", title: "Weekly Check-in Sheet", body: "Whole daycare in/out times for the week — for ministry audits.", icon: CalendarRange, tone: "bg-primary/10 text-primary" },
   { id: "history", title: "Attendance History", body: "Day-by-day attendance rates over a period.", icon: History, tone: "bg-primary/10 text-primary" },
   { id: "staff", title: "Staff Hours", body: "Hours worked from time-clock events.", icon: Timer, tone: "bg-brand-secondary/12 text-brand-secondary" },
   { id: "payments", title: "Payments", body: "Collections by receipt and method.", icon: Wallet, tone: "bg-brand-accent/15 text-brand-accent" },
@@ -43,7 +45,17 @@ const PRESETS: Array<{ id: RangePreset; label: string }> = [
   { id: "custom", label: "Custom" },
 ];
 
-export function ReportsCenter({ roster, staff, payments: seeded }: { roster: ChildRecord[]; staff: Staff[]; payments: Payment[] }) {
+export function ReportsCenter({
+  roster,
+  staff,
+  payments: seeded,
+  classrooms = [],
+}: {
+  roster: ChildRecord[];
+  staff: Staff[];
+  payments: Payment[];
+  classrooms?: Array<{ id: string; name: string }>;
+}) {
   const org = useOrganization();
   const now = useNow();
   const today = useTodayKey();
@@ -52,10 +64,19 @@ export function ReportsCenter({ roster, staff, payments: seeded }: { roster: Chi
   const [preset, setPreset] = useState<RangePreset>("today");
   const [custom, setCustom] = useState<DateRange>({ from: today, to: today });
   const [applied, setApplied] = useState<DateRange>({ from: today, to: today });
+  const classNames = useMemo(() => new Map(classrooms.map((c) => [c.id, c.name])), [classrooms]);
 
   const choosePreset = (p: RangePreset) => {
     setPreset(p);
     if (p !== "custom") setApplied(presetRange(p, today));
+  };
+
+  const selectReport = (id: ReportId) => {
+    setReport(id);
+    if (id === "weekly" && preset !== "week" && preset !== "custom") {
+      setPreset("week");
+      setApplied(presetRange("week", today));
+    }
   };
 
   const clock = useMemo(() => now ?? new Date(), [now]);
@@ -63,6 +84,10 @@ export function ReportsCenter({ roster, staff, payments: seeded }: { roster: Chi
     switch (report) {
       case "daily":
         return dailyReport(roster, attendanceEvents, applied.to, org.timezone, clock);
+      case "weekly":
+        return weeklyCheckInSheet(roster, attendanceEvents, applied, org.timezone, clock, (id) =>
+          id ? (classNames.get(id) ?? "—") : "—",
+        );
       case "history":
         return historyReport(roster, attendanceEvents, applied, org.timezone, clock);
       case "staff":
@@ -70,7 +95,7 @@ export function ReportsCenter({ roster, staff, payments: seeded }: { roster: Chi
       case "payments":
         return paymentsReport(roster, [...sessionPayments, ...seeded], applied, org.timezone, org.currency);
     }
-  }, [report, roster, staff, attendanceEvents, staffTimeEvents, sessionPayments, seeded, applied, org.timezone, org.currency, clock]);
+  }, [report, roster, staff, attendanceEvents, staffTimeEvents, sessionPayments, seeded, applied, org.timezone, org.currency, clock, classNames]);
 
   const meta = REPORTS.find((r) => r.id === report)!;
   const rangeLabel =
@@ -85,14 +110,14 @@ export function ReportsCenter({ roster, staff, payments: seeded }: { roster: Chi
     <div className="mx-auto flex max-w-[1400px] flex-col gap-6 animate-in fade-in-0 duration-500">
       <PageHeader title="Reports" description="Operational reports derived from attendance, time-clock and payment records." />
 
-      <div className="no-print grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4" role="tablist" aria-label="Report type">
+      <div className="no-print grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5" role="tablist" aria-label="Report type">
         {REPORTS.map(({ id, title, body, icon: Icon, tone }) => (
           <button
             key={id}
             type="button"
             role="tab"
             aria-selected={report === id}
-            onClick={() => setReport(id)}
+            onClick={() => selectReport(id)}
             className={cn(
               "flex items-start gap-4 rounded-2xl border bg-surface p-5 text-left shadow-soft transition-[box-shadow,border-color]",
               report === id ? "border-primary ring-4 ring-primary/10" : "border-line hover:shadow-lift",

@@ -30,8 +30,43 @@ export class NoMembershipError extends AppError {
   }
 }
 
-export async function resolveTenantContext(db: AppDb, authProviderId: string | null | undefined): Promise<TenantContext> {
+/** The requested daycare (from the hostname) doesn't exist or isn't active. */
+export class TenantNotFoundError extends AppError {
+  constructor() {
+    super("NOT_FOUND", "Daycare not found.");
+  }
+}
+
+/**
+ * Which organization the request is for.
+ *   { slug }  — from the hostname (mydaycare.visionforgestudio.app). The user
+ *               must hold an ACTIVE membership in exactly that organization.
+ *   undefined — no tenant in the hostname (pre-cutover *.workers.dev / Vercel
+ *               URLs and tests): the user's oldest ACTIVE membership is used.
+ */
+export interface TenantScope {
+  slug: string;
+}
+
+export async function resolveTenantContext(
+  db: AppDb,
+  authProviderId: string | null | undefined,
+  scope?: TenantScope,
+): Promise<TenantContext> {
   if (!authProviderId) throw unauthenticated();
+
+  // Tenant from the hostname: the organization must exist and be usable
+  // BEFORE we look at the user, so an unknown daycare never falls back to
+  // another one.
+  let requestedOrgId: string | undefined;
+  if (scope) {
+    const org = await db.query.organizations.findFirst({
+      where: eq(organizations.slug, scope.slug),
+      columns: { id: true, status: true },
+    });
+    if (!org || !(USABLE_ORG_STATUSES as readonly string[]).includes(org.status)) throw new TenantNotFoundError();
+    requestedOrgId = org.id;
+  }
 
   const user = await db.query.users.findFirst({ where: eq(users.authProviderId, authProviderId) });
   if (!user || user.status !== "ACTIVE") throw new NoMembershipError();
@@ -52,6 +87,7 @@ export async function resolveTenantContext(db: AppDb, authProviderId: string | n
         eq(organizationMemberships.userId, user.id),
         eq(organizationMemberships.status, "ACTIVE"),
         inArray(organizations.status, USABLE_ORG_STATUSES),
+        requestedOrgId ? eq(organizationMemberships.organizationId, requestedOrgId) : undefined,
       ),
     )
     .orderBy(asc(organizationMemberships.createdAt))
@@ -66,6 +102,36 @@ export async function resolveTenantContext(db: AppDb, authProviderId: string | n
     membershipId: membership.id,
     role: membership.role,
   };
+}
+
+export interface MembershipSummary {
+  organizationId: string;
+  slug: string;
+  name: string;
+  role: MembershipRole;
+}
+
+/** The daycares this identity may open (ACTIVE membership, ACTIVE/TRIAL organization), oldest first. */
+export async function listUsableMemberships(db: AppDb, authProviderId: string): Promise<MembershipSummary[]> {
+  const user = await db.query.users.findFirst({ where: eq(users.authProviderId, authProviderId), columns: { id: true, status: true } });
+  if (!user || user.status !== "ACTIVE") return [];
+  return db
+    .select({
+      organizationId: organizations.id,
+      slug: organizations.slug,
+      name: organizations.name,
+      role: organizationMemberships.role,
+    })
+    .from(organizationMemberships)
+    .innerJoin(organizations, eq(organizations.id, organizationMemberships.organizationId))
+    .where(
+      and(
+        eq(organizationMemberships.userId, user.id),
+        eq(organizationMemberships.status, "ACTIVE"),
+        inArray(organizations.status, USABLE_ORG_STATUSES),
+      ),
+    )
+    .orderBy(asc(organizationMemberships.createdAt));
 }
 
 export function can(ctx: TenantContext, permission: Permission): boolean {

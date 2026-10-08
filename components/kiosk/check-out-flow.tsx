@@ -51,6 +51,9 @@ export function CheckOutFlow({
   const child = state.step !== "select" ? roster.find((c) => c.id === state.childId) : undefined;
   const day = child ? byChild.get(child.id) : undefined;
   const pickups = child?.guardians.filter((g) => g.link.canPickUp) ?? [];
+  const signerName = pickups.find((g) => g.guardian.id === guardianId)
+    ? fullName(pickups.find((g) => g.guardian.id === guardianId)!.guardian)
+    : undefined;
   const goHome = useCallback(() => router.push("/kiosk"), [router]);
 
   const select = (c: ChildRecord) => {
@@ -177,8 +180,14 @@ export function CheckOutFlow({
                   </Select>
                 </div>
                 <div>
-                  <p className="mb-2 text-lg font-bold text-ink">Parent / Guardian Signature</p>
-                  <SignaturePad ref={padRef} onInkChange={setHasInk} className="h-60" label={`Signature for ${fullName(child)} check out`} />
+                  <p className="mb-2 text-lg font-bold text-ink">Sign to check out</p>
+                  <SignaturePad
+                    ref={padRef}
+                    onInkChange={setHasInk}
+                    signerName={signerName}
+                    className="h-60"
+                    label={`Signature for ${fullName(child)} check out`}
+                  />
                 </div>
                 {error && (
                   <p role="alert" className="font-semibold text-danger">
@@ -187,7 +196,7 @@ export function CheckOutFlow({
                 )}
                 <KioskButton tone="success" className="w-full" disabled={!hasInk || !guardianId || submitting} onClick={submit}>
                   {submitting && <LoaderCircle className="animate-spin" aria-hidden="true" />}
-                  Confirm Check Out
+                  Sign &amp; Submit
                   {!submitting && <ArrowRight aria-hidden="true" />}
                 </KioskButton>
               </div>
