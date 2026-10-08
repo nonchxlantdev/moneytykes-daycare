@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { signOut } from "@/lib/auth/actions";
 import { getOptionalIdentity } from "@/lib/auth/credentials";
 import { getDb } from "@/lib/db";
+import { isDemoDataMode } from "@/lib/demo-data/mode";
 import { ROLE_LABELS } from "@/lib/server/permissions";
 import { listUsableMemberships } from "@/lib/server/tenant-context";
 import { tenantUrl } from "@/lib/tenancy/hostname";
@@ -17,6 +18,7 @@ export default async function SelectDaycarePage() {
   const user = await getOptionalIdentity();
   if (!user) redirect("/login");
   const tenancy = await getRequestTenancy();
+  if (isDemoDataMode()) redirect("/dashboard");
   const memberships = await listUsableMemberships(getDb(), user.authProviderId);
   if (memberships.length === 0) redirect("/no-access");
 

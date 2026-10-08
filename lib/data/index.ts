@@ -8,11 +8,23 @@ import "server-only";
  * enforces permissions and scopes every query by organization_id.
  * Callers can't pass an organizationId — there is no parameter for it.
  *
+ * When demo data mode is on (no D1 / gateway), fixtures + the process-local
+ * demo store are used instead.
+ *
  * Wrapped in React `cache()` so a layout and page share one lookup per request.
  */
 import { cache } from "react";
 import { getDb } from "@/lib/db";
 import { requireTenantContext } from "@/lib/auth/tenant";
+import { demoClassrooms, demoOrganization } from "@/lib/demo-data/fixtures";
+import { isDemoDataMode } from "@/lib/demo-data/mode";
+import {
+  getDemoAttendanceEvents,
+  getDemoRosterAll,
+  getDemoStaff,
+  getDemoStaffAll,
+  getDemoStaffTimeEvents,
+} from "@/lib/demo-data/store";
 import { buildMockBilling, type MockBilling } from "@/lib/mock-data/payments";
 import { listAttendanceWindow, listChildAttendanceHistory } from "@/lib/server/services/attendance";
 import { getChildProfile, listChildRecords } from "@/lib/server/services/children";
@@ -31,43 +43,73 @@ export type { ChildRecord, GuardianLink } from "@/types/domain";
 /** Days of events delivered to client widgets (dashboard charts, reports up to "This Month"). */
 export const EVENT_WINDOW_DAYS = 40;
 
-const tenant = cache(async () => ({ ctx: await requireTenantContext(), db: getDb() }));
+const tenant = cache(async () => ({ ctx: await requireTenantContext(), db: isDemoDataMode() ? null : getDb() }));
 
 export const getCurrentOrganization = cache(async () => {
+  if (isDemoDataMode()) {
+    await requireTenantContext();
+    return demoOrganization;
+  }
   const { ctx, db } = await tenant();
-  return getOrganization(db, ctx);
+  return getOrganization(db!, ctx);
 });
 
 export const getClassroomList = cache(async () => {
+  if (isDemoDataMode()) {
+    await requireTenantContext();
+    return demoClassrooms;
+  }
   const { ctx, db } = await tenant();
-  return getClassrooms(db, ctx);
+  return getClassrooms(db!, ctx);
 });
 
 export const getChildRecords = cache(async (statuses?: EnrollmentStatus[]): Promise<ChildRecord[]> => {
+  if (isDemoDataMode()) {
+    await requireTenantContext();
+    const rows = getDemoRosterAll();
+    if (!statuses?.length) return rows;
+    return rows.filter((c) => statuses.includes(c.enrollmentStatus));
+  }
   const { ctx, db } = await tenant();
-  return listChildRecords(db, ctx, statuses);
+  return listChildRecords(db!, ctx, statuses);
 });
 
 export const getActiveChildRecords = cache(() => getChildRecords(["ACTIVE"]));
 
 export const getChildRecord = cache(async (childId: string) => {
+  if (isDemoDataMode()) {
+    await requireTenantContext();
+    return getDemoRosterAll().find((c) => c.id === childId) ?? null;
+  }
   const { ctx, db } = await tenant();
-  return getChildProfile(db, ctx, childId);
+  return getChildProfile(db!, ctx, childId);
 });
 
 export const getChildHistory = cache(async (childId: string) => {
+  if (isDemoDataMode()) {
+    await requireTenantContext();
+    return getDemoAttendanceEvents().filter((e) => e.childId === childId);
+  }
   const { ctx, db } = await tenant();
-  return listChildAttendanceHistory(db, ctx, childId);
+  return listChildAttendanceHistory(db!, ctx, childId);
 });
 
 export const getStaffList = cache(async () => {
+  if (isDemoDataMode()) {
+    await requireTenantContext();
+    return getDemoStaff();
+  }
   const { ctx, db } = await tenant();
-  return listStaff(db, ctx);
+  return listStaff(db!, ctx);
 });
 
 export const getStaffById = cache(async (staffId: string) => {
+  if (isDemoDataMode()) {
+    await requireTenantContext();
+    return getDemoStaffAll().find((s) => s.id === staffId) ?? null;
+  }
   const { ctx, db } = await tenant();
-  return getStaffMember(db, ctx, staffId);
+  return getStaffMember(db!, ctx, staffId);
 });
 
 /** Start of the event window: local midnight N days ago in the ORGANIZATION's timezone. */
@@ -77,13 +119,23 @@ export const getEventWindowStart = cache(async () => {
 });
 
 export const getAttendanceEvents = cache(async () => {
+  if (isDemoDataMode()) {
+    await requireTenantContext();
+    const since = (await getEventWindowStart()).toISOString();
+    return getDemoAttendanceEvents().filter((e) => e.eventTime >= since);
+  }
   const { ctx, db } = await tenant();
-  return listAttendanceWindow(db, ctx, await getEventWindowStart());
+  return listAttendanceWindow(db!, ctx, await getEventWindowStart());
 });
 
 export const getStaffTimeEvents = cache(async () => {
+  if (isDemoDataMode()) {
+    await requireTenantContext();
+    const since = (await getEventWindowStart()).toISOString();
+    return getDemoStaffTimeEvents().filter((e) => e.eventTime >= since);
+  }
   const { ctx, db } = await tenant();
-  return listStaffTimeWindow(db, ctx, await getEventWindowStart());
+  return listStaffTimeWindow(db!, ctx, await getEventWindowStart());
 });
 
 /** ⚠️ Mock billing derived from the real roster (payments persistence is a later phase). */

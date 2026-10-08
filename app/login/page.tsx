@@ -5,11 +5,16 @@ import { PostLoginWelcome } from "@/components/auth/post-login-welcome";
 import { getOptionalIdentity } from "@/lib/auth/credentials";
 import { peekWelcomePending } from "@/lib/auth/session";
 import { getDb } from "@/lib/db";
+import { isDemoDataMode } from "@/lib/demo-data/mode";
+import { demoPublicTenant } from "@/lib/demo-data/public";
 import { getPrimaryPublicTenant, getPublicTenantBySlug } from "@/lib/server/services/public-tenant";
 import { getRequestTenancy } from "@/lib/tenancy/request";
 
 export async function generateMetadata(): Promise<Metadata> {
   const { resolution } = await getRequestTenancy();
+  if (isDemoDataMode()) {
+    return { title: { absolute: `Sign in · ${demoPublicTenant().name}` } };
+  }
   if (resolution.kind === "tenant") {
     const tenant = await getPublicTenantBySlug(getDb(), resolution.slug).catch(() => null);
     if (tenant) return { title: { absolute: `Sign in · ${tenant.name}` } };
@@ -22,14 +27,23 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   const { resolution } = tenancy;
   if (resolution.kind === "reserved" || resolution.kind === "invalid") notFound();
 
-  const tenant = resolution.kind === "tenant" ? await getPublicTenantBySlug(getDb(), resolution.slug).catch(() => null) : undefined;
+  const demo = isDemoDataMode();
+  const tenant = demo
+    ? resolution.kind === "tenant" || resolution.kind === "unscoped" || resolution.kind === "platform"
+      ? demoPublicTenant()
+      : undefined
+    : resolution.kind === "tenant"
+      ? await getPublicTenantBySlug(getDb(), resolution.slug).catch(() => null)
+      : undefined;
   if (tenant === null) notFound();
 
   const welcomeTenant =
     tenant ??
-    (resolution.kind === "platform" || resolution.kind === "unscoped"
-      ? await getPrimaryPublicTenant(getDb()).catch(() => null)
-      : null);
+    (demo
+      ? demoPublicTenant()
+      : resolution.kind === "platform" || resolution.kind === "unscoped"
+        ? await getPrimaryPublicTenant(getDb()).catch(() => null)
+        : null);
 
   const welcome = welcomeTenant ?? undefined;
   const daycareName = welcome?.name ?? "your daycare";

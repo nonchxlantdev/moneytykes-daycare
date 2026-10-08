@@ -3,6 +3,8 @@ import "server-only";
 import { cache } from "react";
 import { notFound, redirect } from "next/navigation";
 import { getDb } from "@/lib/db";
+import { demoMembershipSummary, demoTenantContext } from "@/lib/demo-data/context";
+import { isDemoDataMode } from "@/lib/demo-data/mode";
 import { AppError, forbidden, unauthenticated } from "@/lib/server/errors";
 import type { Permission } from "@/lib/server/permissions";
 import {
@@ -41,6 +43,17 @@ function scopeOf(tenancy: RequestTenancy): TenantScope | undefined {
  * straight to their daycare when they belong to exactly one.
  */
 export async function platformDestination(authProviderId: string, tenancy: RequestTenancy): Promise<string> {
+  if (isDemoDataMode()) {
+    const memberships = demoMembershipSummary();
+    if (memberships.length === 1 && tenancy.resolution.kind === "platform") {
+      return tenantUrl(memberships[0].slug, "/dashboard", {
+        host: tenancy.host,
+        protocol: tenancy.protocol,
+        rootDomain: tenancy.resolution.rootDomain,
+      });
+    }
+    return "/dashboard";
+  }
   const memberships = await listUsableMemberships(getDb(), authProviderId);
   if (memberships.length === 0) return "/no-access";
   if (memberships.length === 1 && tenancy.resolution.kind === "platform") {
@@ -72,6 +85,8 @@ export const requireTenantContext = cache(async (): Promise<TenantContext> => {
     redirect(await platformDestination(identity.authProviderId, tenancy));
   }
 
+  if (isDemoDataMode()) return demoTenantContext(identity);
+
   try {
     const scope = resolution.kind === "platform" || resolution.kind === "unscoped" ? undefined : scopeOf(tenancy);
     return await resolveTenantContext(getDb(), identity.authProviderId, scope);
@@ -96,7 +111,11 @@ export async function getActionContext(): Promise<TenantContext> {
 
   const tenancy = await getRequestTenancy();
   const { resolution } = tenancy;
-  if (resolution.kind === "platform") throw forbidden("Open your daycare's own address to make changes.");
   if (resolution.kind === "reserved" || resolution.kind === "invalid") throw new AppError("NOT_FOUND", "Daycare not found.");
+  if (isDemoDataMode()) {
+    // *.vercel.app is unscoped; localhost may be "platform" — both OK in demo.
+    return demoTenantContext(identity);
+  }
+  if (resolution.kind === "platform") throw forbidden("Open your daycare's own address to make changes.");
   return resolveTenantContext(getDb(), identity.authProviderId, scopeOf(tenancy));
 }

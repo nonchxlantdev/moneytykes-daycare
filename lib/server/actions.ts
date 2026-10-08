@@ -9,7 +9,17 @@
  * now. Phase 3 adds device authentication and route handlers for
  * offline sync that call these SAME services.
  */
-import { runAction, runQuery } from "./action-runner";
+import { isDemoDataMode } from "@/lib/demo-data/mode";
+import {
+  demoRecordAttendance,
+  demoRecordStaffTime,
+  demoSetChildStatus,
+  demoUpdateStaffStatus,
+  demoVerifyStaffPin,
+} from "@/lib/demo-data/store";
+import { setChildStatusSchema, updateStaffSchema } from "@/lib/validation/mutations";
+import { runAction, runDemoAction, runQuery } from "./action-runner";
+import { AppError } from "./errors";
 import { recordAttendance } from "./services/attendance";
 import { createChild, setChildStatus, updateChild } from "./services/children";
 import { createGuardian, linkGuardian, searchGuardians, unlinkGuardian, updateGuardian, updateGuardianLink } from "./services/guardians";
@@ -25,6 +35,12 @@ export async function updateChildAction(input: unknown) {
   return runAction((db, ctx) => updateChild(db, ctx, input));
 }
 export async function setChildStatusAction(input: unknown) {
+  if (isDemoDataMode()) {
+    return runDemoAction(async () => {
+      const v = setChildStatusSchema.parse(input);
+      demoSetChildStatus(v.childId, v.enrollmentStatus);
+    });
+  }
   return runAction((db, ctx) => setChildStatus(db, ctx, input));
 }
 
@@ -50,9 +66,15 @@ export async function searchGuardiansAction(query: unknown) {
 
 /* attendance */
 export async function checkInChildAction(input: unknown) {
+  if (isDemoDataMode()) {
+    return runDemoAction(() => demoRecordAttendance("CHECK_IN", input));
+  }
   return runAction((db, ctx) => recordAttendance(db, ctx, "CHECK_IN", input));
 }
 export async function checkOutChildAction(input: unknown) {
+  if (isDemoDataMode()) {
+    return runDemoAction(() => demoRecordAttendance("CHECK_OUT", input));
+  }
   return runAction((db, ctx) => recordAttendance(db, ctx, "CHECK_OUT", input));
 }
 
@@ -61,15 +83,34 @@ export async function createStaffAction(input: unknown) {
   return runAction((db, ctx) => createStaff(db, ctx, input));
 }
 export async function updateStaffAction(input: unknown) {
+  if (isDemoDataMode()) {
+    return runDemoAction(async () => {
+      const v = updateStaffSchema.parse(input);
+      if (v.employmentStatus) {
+        demoUpdateStaffStatus(v.staffId, v.employmentStatus, v.statusNote);
+        return;
+      }
+      throw new AppError("VALIDATION", "Demo mode — roster changes aren't saved.");
+    });
+  }
   return runAction((db, ctx) => updateStaff(db, ctx, input));
 }
 export async function verifyStaffPinAction(input: unknown) {
+  if (isDemoDataMode()) {
+    return runDemoAction(() => demoVerifyStaffPin(input));
+  }
   return runQuery((db, ctx) => verifyStaffPin(db, ctx, input));
 }
 export async function clockInStaffAction(input: unknown) {
+  if (isDemoDataMode()) {
+    return runDemoAction(() => demoRecordStaffTime("CLOCK_IN", input));
+  }
   return runAction((db, ctx) => recordStaffTime(db, ctx, "CLOCK_IN", input));
 }
 export async function clockOutStaffAction(input: unknown) {
+  if (isDemoDataMode()) {
+    return runDemoAction(() => demoRecordStaffTime("CLOCK_OUT", input));
+  }
   return runAction((db, ctx) => recordStaffTime(db, ctx, "CLOCK_OUT", input));
 }
 

@@ -132,6 +132,7 @@ Names only in `.env.example` / `.dev.vars.example`. No `NEXT_PUBLIC_*` variables
 | `PLATFORM_ROOT_DOMAIN` | runtime var | `wrangler.jsonc` → `vars` | `visionforgestudio.app`; `<slug>.<this>` is a daycare |
 | `AUTH_COOKIE_DOMAIN` | runtime var | `wrangler.jsonc` → `vars` | Session cookie shared by the platform domain and daycare subdomains |
 | `SESSION_SECRET` | **secret** | Worker → Settings → Variables and Secrets | Signs the session cookie (≥ 32 chars) |
+| `DEMO_DATA` | optional | Vercel / `.env.local` | `1` force fixture demo; `0` force DB. Auto-on when `D1_GATEWAY_*` are unset |
 | `AUTH_USERS` | **secret** | same / Vercel env | JSON array of `{username,passwordHash,name?}` for multi-login (preferred) |
 | `AUTH_PASSWORD_HASH` | **secret** | same | Legacy single-user bcrypt hash when `AUTH_USERS` is unset |
 | `AUTH_USER_NAME`, `AUTH_EMAIL` | runtime (stored as Secret) | same | Legacy single-user name/email; also used by tenant/seed scripts |
@@ -294,7 +295,11 @@ The suite covers: tenant isolation with a second organization (reads, updates, l
 
 ## Authentication
 
-Env-based logins via `AUTH_USERS` (JSON array of username + bcrypt hash; preferred) or the legacy `AUTH_USERNAME` + `AUTH_PASSWORD_HASH` pair. A signed httpOnly session cookie (`vf_session`, `SESSION_SECRET`) and `proxy.ts` keep every route except `/login` and `/api/health` behind a session. Every successful env login still maps to identity `password:usr_bootstrap` for D1 memberships (same daycare access). On the production domain the cookie is scoped to `visionforgestudio.app` (HttpOnly, Secure, SameSite=Lax) so signing in on the platform domain also works on your daycare's subdomain; elsewhere it is host-only. There is no OAuth provider, so there are no callback URLs to configure. bcrypt requires the Workers Paid plan.
+Env-based logins via `AUTH_USERS` (JSON array of username + bcrypt hash; preferred) or the legacy `AUTH_USERNAME` + `AUTH_PASSWORD_HASH` pair. A signed httpOnly session cookie (`vf_session`, `SESSION_SECRET`) and `proxy.ts` keep every route except `/login` and `/api/health` behind a session. Every successful env login still maps to identity `password:usr_bootstrap` for D1 memberships (same daycare access).
+
+**Vercel without Cloudflare:** when `D1_GATEWAY_URL` / `D1_GATEWAY_SECRET` are unset, the app auto-enters **demo data mode** (sample org, kids, staff). Only `AUTH_USERS` + `SESSION_SECRET` are required. Add the gateway vars later to switch to live D1.
+
+On the production domain the cookie is scoped to `visionforgestudio.app` (HttpOnly, Secure, SameSite=Lax) so signing in on the platform domain also works on your daycare's subdomain; elsewhere it is host-only. There is no OAuth provider, so there are no callback URLs to configure. bcrypt requires the Workers Paid plan when using Workers.
 
 ## Deployment
 
@@ -306,7 +311,7 @@ Builds never touch the database; migrations, tenants and seeds are always explic
 
 | Symptom | Fix |
 |---|---|
-| "We couldn't load this page" | On Cloudflare: open `/api/health`; `database: unavailable` means the D1 binding/`database_id` or migrations are wrong. With `next dev`: the legacy gateway isn't running. Check Worker logs (Observability). |
+| "We couldn't load this page" | On Cloudflare: open `/api/health`; `database: unavailable` means the D1 binding/`database_id` or migrations are wrong. On Vercel without gateway: ensure the latest deploy includes demo data mode, or set `DEMO_DATA=1`. With `next dev`: the legacy gateway isn't running (or set `DEMO_DATA=1`). |
 | "Daycare not found" | No ACTIVE/TRIAL organization with that slug — create it with `npm run tenant:create:remote`. |
 | Redirected to `/no-access` after signing in | Your identity has no active membership in that daycare. Run `npm run tenant:create:remote -- --owner-email …` (or `:local`). |
 | `/forbidden` | Your role can't open that page (e.g. staff → Settings). |

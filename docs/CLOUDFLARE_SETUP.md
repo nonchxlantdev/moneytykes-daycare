@@ -126,6 +126,7 @@ Vercel → Project → **Settings → Environment Variables**:
 | `D1_GATEWAY_SECRET` | ✅ | ✅ | ✅ | Same value as that Worker's `GATEWAY_SECRET`. Mark **Sensitive**. |
 | `SESSION_SECRET` | ✅ | ✅ | ✅ | Existing. Different value per environment. Sensitive. |
 | `AUTH_USERS` | ✅ | ✅ | ✅ | JSON array of `{username,passwordHash,name?}`. Paste bcrypt hashes as-is (no `\$`). Prefer this over the single-user vars. |
+| `DEMO_DATA` | optional | optional | optional | Omit to auto-use fixture demo when `D1_GATEWAY_*` are unset. Set `0` to require a real DB. |
 | `AUTH_USERNAME` / `AUTH_PASSWORD_HASH` | legacy | legacy | legacy | Only when `AUTH_USERS` is unset. Paste hash as-is (no `\$`). |
 | `AUTH_USER_NAME` | optional | optional | optional | Legacy single-user display name. |
 | `AUTH_EMAIL` | optional | optional | optional | Legacy single-user email. |
