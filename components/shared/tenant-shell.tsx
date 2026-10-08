@@ -1,12 +1,10 @@
 import type { CSSProperties, ReactNode } from "react";
 import { requireTenantContext } from "@/lib/auth/tenant";
 import { getAttendanceEvents, getCurrentOrganization, getEventWindowStart, getStaffTimeEvents } from "@/lib/data";
-import { isDemoDataMode } from "@/lib/demo-data/mode";
 import { PERMISSIONS, ROLE_LABELS } from "@/lib/server/permissions";
 import { can } from "@/lib/server/tenant-context";
 import { LiveDataProvider } from "@/lib/store/live-data";
 import { brandCssVars } from "@/lib/theme/brand-css-vars";
-import { DemoModeBanner } from "./demo-mode-banner";
 import { OrganizationProvider } from "./organization-provider";
 import { ViewerProvider, type Viewer } from "./viewer-provider";
 
@@ -37,7 +35,6 @@ export async function TenantShell({ children }: { children: ReactNode }) {
       <OrganizationProvider organization={organization}>
         <ViewerProvider viewer={viewer}>
           <LiveDataProvider attendanceEvents={attendanceEvents} staffTimeEvents={staffTimeEvents} windowStart={windowStart.toISOString()}>
-            {isDemoDataMode() ? <DemoModeBanner /> : null}
             {children}
           </LiveDataProvider>
         </ViewerProvider>
