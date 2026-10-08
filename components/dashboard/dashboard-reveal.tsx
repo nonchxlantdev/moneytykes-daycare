@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { startTransition, useEffect, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { consumePostLoginEntrance } from "@/components/auth/login-welcome-overlay";
 
@@ -10,7 +10,10 @@ export function DashboardReveal({ children }: { children: React.ReactNode }) {
   const [fromLogin, setFromLogin] = useState(false);
 
   useEffect(() => {
-    setFromLogin(consumePostLoginEntrance());
+    // Defer so the first paint matches SSR (no entrance), then apply after hydrate.
+    startTransition(() => {
+      setFromLogin(consumePostLoginEntrance());
+    });
   }, []);
 
   if (reduceMotion || !fromLogin) return <>{children}</>;

@@ -19,6 +19,8 @@ export interface NavItem {
   icon: LucideIcon;
   /** Planned for a later phase — rendered, but labelled. */
   later?: boolean;
+  /** Omit from the sidebar (route may still exist). */
+  hidden?: boolean;
   /** Hidden when the viewer lacks this permission (the page also enforces it server-side). */
   permission?: Permission;
 }
@@ -30,8 +32,8 @@ export const primaryNav: NavItem[] = [
   { href: "/staff", label: "Staff", icon: UsersRound },
   { href: "/payments", label: "Payments", icon: Wallet, permission: "payments:view" },
   { href: "/reports", label: "Reports", icon: ChartColumn, permission: "reports:view" },
-  { href: "/messages", label: "Messages", icon: MessageSquare, later: true },
-  { href: "/calendar", label: "Calendar", icon: Calendar, later: true },
-  { href: "/documents", label: "Documents", icon: FileText, later: true },
+  { href: "/messages", label: "Messages", icon: MessageSquare, hidden: true },
+  { href: "/calendar", label: "Calendar", icon: Calendar },
+  { href: "/documents", label: "Documents", icon: FileText },
   { href: "/settings", label: "Settings", icon: Settings, permission: "settings:manage" },
 ];

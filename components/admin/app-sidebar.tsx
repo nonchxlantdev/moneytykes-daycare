@@ -14,7 +14,10 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   const { permissions } = useViewer();
   return (
     <nav aria-label="Main" className="flex flex-col gap-1">
-      {primaryNav.filter((item) => !item.permission || permissions.includes(item.permission)).map((item) => {
+      {primaryNav
+        .filter((item) => !item.hidden)
+        .filter((item) => !item.permission || permissions.includes(item.permission))
+        .map((item) => {
         const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
         const Icon = item.icon;
         return (
